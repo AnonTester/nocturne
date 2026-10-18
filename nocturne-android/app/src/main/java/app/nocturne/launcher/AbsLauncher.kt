@@ -3,8 +3,6 @@ package app.nocturne.launcher
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.SystemClock
-import android.view.KeyEvent
 import app.nocturne.abs.AbsBook
 import app.nocturne.data.AbsConfig
 
@@ -24,8 +22,9 @@ object AbsLauncher {
     }
 
     /**
-     * Best effort resume: tell ABS' media session to play (works if its session is alive), then bring the app
-     * forward. Without the app, open the item's page on the server.
+     * The ABS app cannot be told to play a book from outside: its media session rejects other apps, it has no play
+     * intent or deep link, and it ignores media-button events until a book is already loaded. So "resume" opens the app
+     * (where the book sits first under Continue Listening), or the item's page on the server without the app.
      */
     fun resume(context: Context, cfg: AbsConfig, book: AbsBook): String {
         val launch = context.packageManager.getLaunchIntentForPackage(cfg.appPackage)
@@ -34,18 +33,8 @@ object AbsLauncher {
                 browse(context, "${cfg.serverUrl}/item/${book.id}"); "App not installed, opened the book on the server."
             } else "Audiobookshelf is not installed."
         }
-        sendPlayKey(context, cfg.appPackage)
         start(context, launch)
-        return "Resuming in Audiobookshelf."
-    }
-
-    private fun sendPlayKey(context: Context, pkg: String) {
-        val now = SystemClock.uptimeMillis()
-        for (action in intArrayOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) {
-            val intent = Intent(Intent.ACTION_MEDIA_BUTTON).setPackage(pkg)
-                .putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(now, now, action, KeyEvent.KEYCODE_MEDIA_PLAY, 0))
-            runCatching { context.sendBroadcast(intent) }
-        }
+        return "Opened Audiobookshelf. Tap the book under Continue Listening to resume."
     }
 
     private fun start(context: Context, intent: Intent) {

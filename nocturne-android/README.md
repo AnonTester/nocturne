@@ -65,7 +65,7 @@ Then, on the phone:
 1. Open Nocturne. Allow notifications and, when asked, access to music/audio.
 2. **Settings > Library**: enter the Samba host, share, user and password (and optionally a subfolder), run *Test connection*, then *Save & scan share*. For device music, enable the device library and/or pick a folder.
 3. **Settings > Launcher > Set as default launcher**, choose Nocturne and *Always*. The Home button then returns to Nocturne; use the app list in the app to start other apps. To undo: Android Settings > Apps > Default apps > Home app.
-4. Optional, **Settings > Audiobooks**: server URL, user, password. Only a login and read requests are made. Resume sends a play command to the installed Audiobookshelf app and opens it (no documented deep link exists); without the app it opens the server's web page.
+4. Optional, **Settings > Audiobooks**: server URL, user, password. Only a login and read requests are made. Resume opens the installed Audiobookshelf app, where the book is first under Continue Listening (the app cannot be told to start playback from outside); without the app it opens the book's page on the server.
 
 ## Network notes
 - Samba: SMB2/3 only (SMB1-only servers are not supported). The phone must be able to reach the server on port 445 (same Wi-Fi/LAN or VPN). Guest access works with an empty user name.

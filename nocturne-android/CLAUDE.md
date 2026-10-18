@@ -24,7 +24,7 @@ Bedside music player + Audiobookshelf "last played" widget + home-screen (launch
 - A scan with unreadable folders must not delete tracks (`Reconciler(deleteMissing=false)`).
 - Scans run in `LibraryManager`'s scope, never in a composable/ViewModel scope (closing a dialog cancelled them once).
 - smbj needs BouncyCastle: `NocturneApp.installBouncyCastle()` replaces Android's trimmed "BC" provider.
-- Audiobookshelf has no documented "play this item" intent; Resume = media-button play + launch the ABS app, web fallback otherwise.
+- Audiobookshelf cannot be told to play from outside (tested on app 0.14.2-beta: its media browser service rejects third-party callers, no play intent or deep link, media keys ignored until a book is loaded). Resume = open the ABS app; web item page if not installed.
 
 ## Test infrastructure used during development (not part of the repo)
 - Emulator AVDs `nocturne_op3` (API 34) and `nocturne_api28` (Android 9, closest to the OnePlus 3), both 1080x1920 at 420 dpi. Rotate headless with `adb emu rotate`.
