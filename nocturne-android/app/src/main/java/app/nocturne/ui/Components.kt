@@ -165,6 +165,27 @@ fun SecondaryButton(
     }
 }
 
+/** Set from the real window width at the root: true on a portrait phone. */
+val LocalNarrow = compositionLocalOf { false }
+
+@Composable
+fun isNarrowWindow(): Boolean = LocalNarrow.current
+
+/** Buttons that share a line when there is room and wrap onto the next one (portrait) instead of truncating their labels. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun ButtonFlow(content: @Composable androidx.compose.foundation.layout.FlowRowScope.() -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        content = content,
+    )
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+fun androidx.compose.foundation.layout.FlowRowScope.flowWeight(weight: Float = 1f): Modifier = Modifier.weight(weight).widthIn(min = 150.dp)
+
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(

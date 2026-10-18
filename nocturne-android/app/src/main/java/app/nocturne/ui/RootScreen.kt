@@ -107,9 +107,10 @@ fun RootScreen(
                 BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(insets)) {
                     val wide = maxWidth >= 560.dp
                     val labels = maxWidth >= 800.dp
+                    val narrow = maxWidth < 480.dp
                     Column(Modifier.fillMaxSize()) {
                         Header(
-                            mode = settings.mode, wide = wide, labels = labels, sleep = player.sleep, dimmed = dimmed,
+                            mode = settings.mode, wide = wide, labels = labels, narrow = narrow, sleep = player.sleep, dimmed = dimmed,
                             onMode = vm::setMode, onSleep = { dialog = Dlg.SLEEP },
                             onDim = { dimmed = !dimmed }, onSettings = { settingsTab = SettingsTab.THEME; dialog = Dlg.SETTINGS },
                         )
@@ -148,7 +149,8 @@ fun RootScreen(
                     )
                 }
 
-                Box(Modifier.fillMaxSize().windowInsetsPadding(insets)) {
+                BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(insets)) {
+                CompositionLocalProvider(LocalNarrow provides (maxWidth < 480.dp)) {
                 when (dialog) {
                     Dlg.SLEEP -> SleepTimerDialog(player.sleep, { dialog = null }, vm::startSleepTimer, vm::cancelSleepTimer, vm::extendSleepTimer)
                     Dlg.ALBUMS -> AlbumsDialog(vm) { dialog = null }
@@ -159,6 +161,7 @@ fun RootScreen(
                     )
                     Dlg.APPS -> AppsDialog { dialog = null }
                     null -> {}
+                }
                 }
                 }
             }

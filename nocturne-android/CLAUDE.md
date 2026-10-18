@@ -32,6 +32,7 @@ Bedside music player + Audiobookshelf "last played" widget + home-screen (launch
 ## Test infrastructure used during development (not part of the repo)
 - Emulator AVDs `nocturne_op3` (API 34) and `nocturne_api28` (Android 9, closest to the OnePlus 3), both 1080x1920 at 420 dpi. Rotate headless with `adb emu rotate`.
 - Local SMB test server: impacket `smbserver.py -smb2support -port 4455 -username test -password secret music <dir>` (reachable from the emulator via the emulator's host-loopback alias).
+- The test phone runs a force-rotation app that pins landscape, so portrait cannot be reached by rotating. Emulate it with `wm density 270` + `wm overscan 656,0,656,0` on a `wm size 1920x1080` display (a 608x1080 px = 360x640 dp strip), then reset with `wm overscan reset`, `wm size reset` and `wm density <original override>`.
 - Mock Audiobookshelf server implementing `/ping`, `/login`, `/api/me`, `/api/items/{id}`, `/cover`.
 
 ## Privacy

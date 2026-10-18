@@ -154,14 +154,19 @@ fun TracksDialog(vm: MainViewModel, currentId: String?, onDismiss: () -> Unit) {
     FullDialog(
         onDismiss, "Library", "${"%,d".format(count)} indexed tracks", Icons.Rounded.LibraryMusic,
         headerActions = {
-            PrimaryButton("Randomize", { vm.randomizeAll(); onDismiss() }, icon = Icons.Rounded.Shuffle)
+            // Icon only on a narrow (portrait) screen, or it squeezes the title away.
+            if (isNarrowWindow()) {
+                IconTile(Icons.Rounded.Shuffle, "Randomize", { vm.randomizeAll(); onDismiss() }, size = 44.dp, selected = true)
+            } else {
+                PrimaryButton("Randomize", { vm.randomizeAll(); onDismiss() }, icon = Icons.Rounded.Shuffle)
+            }
             Spacer(Modifier.width(8.dp))
         },
         maxWidth = 800.dp,
     ) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                SearchField(query, { vm.trackQuery.value = it }, "Search title, artist, album or folder", Modifier.weight(1f))
+                SearchField(query, { vm.trackQuery.value = it }, "Search tracks", Modifier.weight(1f))
                 Spacer(Modifier.width(10.dp))
                 Icon(Icons.Rounded.Search, null, tint = c.textMuted)
             }

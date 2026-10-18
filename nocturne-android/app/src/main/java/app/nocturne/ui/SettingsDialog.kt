@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package app.nocturne.ui
 
 import android.content.Context
@@ -236,15 +238,15 @@ private fun LauncherTab(vm: MainViewModel, settings: AppSettings, homeSignal: In
             if (isHome) "Nocturne is your home app. The Home button brings you back here."
             else "Nocturne is not your home app yet. Choose it under 'Set as default launcher'.",
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        ButtonFlow {
             PrimaryButton("Set as default launcher", {
                 InstalledApps.openDefaultLauncherSettings(context); recheck++
-            }, Modifier.weight(1f), icon = Icons.Rounded.Home)
-            SecondaryButton("Refresh", { recheck++ }, icon = Icons.Rounded.Refresh)
+            }, flowWeight(1.8f), icon = Icons.Rounded.Home)
+            SecondaryButton("Refresh", { recheck++ }, flowWeight(), icon = Icons.Rounded.Refresh)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SecondaryButton("Open other apps", onOpenApps, Modifier.weight(1f), icon = Icons.Rounded.Apps)
-            SecondaryButton("Android settings", { InstalledApps.openSystemSettings(context) }, Modifier.weight(1f), icon = Icons.Rounded.Settings)
+        ButtonFlow {
+            SecondaryButton("Open other apps", onOpenApps, flowWeight(), icon = Icons.Rounded.Apps)
+            SecondaryButton("Android settings", { InstalledApps.openSystemSettings(context) }, flowWeight(), icon = Icons.Rounded.Settings)
         }
         SectionLabel("Display")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -338,14 +340,14 @@ private fun LibraryTab(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { userField(Modifier.weight(1f)); passField(Modifier.weight(1f)) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { domainField(Modifier.weight(1f)); rescanField(Modifier.weight(1f)) }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (wide) rescanField(Modifier.weight(1f))
+        ButtonFlow {
+            if (wide) rescanField(flowWeight())
             SecondaryButton(if (testing) "Testing..." else "Test connection", {
                 scope.launch { testing = true; test = vm.testSmb(cfg(), pw()); testing = false }
-            }, Modifier.weight(1f), icon = Icons.Rounded.Wifi, enabled = !testing && host.isNotBlank() && share.isNotBlank())
+            }, flowWeight(), icon = Icons.Rounded.Wifi, enabled = !testing && host.isNotBlank() && share.isNotBlank())
             PrimaryButton(if (lib.scanning) "Scanning..." else "Save & scan share", {
                 vm.saveSmbAndScan(cfg(), pw()); passwordEdited = false
-            }, Modifier.weight(1f), icon = Icons.Rounded.Dns, enabled = !lib.scanning && host.isNotBlank() && share.isNotBlank())
+            }, flowWeight(), icon = Icons.Rounded.Dns, enabled = !lib.scanning && host.isNotBlank() && share.isNotBlank())
         }
         test?.let { r ->
             StatusLine(r.success, r.message + if (r.sample.isNotEmpty()) "\n" + r.sample.joinToString(", ") else "")
@@ -370,9 +372,9 @@ private fun LibraryTab(
                 IconTile(Icons.Rounded.Close, "Remove folder", { vm.removeTree(uri) }, size = 44.dp, container = c.surfaceHigh)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SecondaryButton("Add folder", onPickFolder, Modifier.weight(1f), icon = Icons.Rounded.Add)
-            SecondaryButton("Rescan device", { vm.scanLocal() }, Modifier.weight(1f), icon = Icons.Rounded.Refresh, enabled = !lib.scanning)
+        ButtonFlow {
+            SecondaryButton("Add folder", onPickFolder, flowWeight(), icon = Icons.Rounded.Add)
+            SecondaryButton("Rescan device", { vm.scanLocal() }, flowWeight(), icon = Icons.Rounded.Refresh, enabled = !lib.scanning)
         }
         StatusLine(null, "${"%,d".format(count)} tracks in the library" + (lib.message?.let { "\n$it" } ?: ""))
     }

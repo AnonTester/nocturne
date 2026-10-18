@@ -94,7 +94,8 @@ fun AudiobookshelfStage(vm: MainViewModel, cfg: AbsConfig, onSettings: () -> Uni
         }
         val actions: @Composable (Modifier) -> Unit = { m ->
             Panel(m) {
-                Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
+                // fillMaxSize here let this panel take the whole portrait column and squeeze the book panel to nothing.
+                Column((if (landscape) Modifier.fillMaxSize() else Modifier.fillMaxWidth()).padding(16.dp), verticalArrangement = Arrangement.Center) {
                     SectionLabel("Audiobookshelf")
                     Spacer(Modifier.height(10.dp))
                     PrimaryButton(

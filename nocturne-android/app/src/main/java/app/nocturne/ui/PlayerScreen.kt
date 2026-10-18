@@ -93,6 +93,7 @@ fun Header(
     mode: AppMode,
     wide: Boolean,
     labels: Boolean,
+    narrow: Boolean,
     sleep: SleepTimerState,
     dimmed: Boolean,
     onMode: (AppMode) -> Unit,
@@ -102,7 +103,7 @@ fun Header(
 ) {
     val c = Nocturne.colors
     Row(
-        Modifier.fillMaxWidth().height(60.dp).background(c.surface).padding(horizontal = 12.dp),
+        Modifier.fillMaxWidth().height(if (narrow) 56.dp else 60.dp).background(c.surface).padding(horizontal = if (narrow) 8.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Mode switch (either music or audiobooks, never both)
@@ -114,13 +115,13 @@ fun Header(
             ModeChip("Audiobookshelf", Icons.Rounded.MenuBook, mode == AppMode.AUDIOBOOKSHELF, labels, c.secondary, c.onSecondary) { onMode(AppMode.AUDIOBOOKSHELF) }
         }
         Spacer(Modifier.weight(1f))
-        Clock(wide = wide, onClick = onDim)
+        Clock(wide = wide, narrow = narrow, onClick = onDim)
         Spacer(Modifier.width(if (wide) 10.dp else 6.dp))
-        SleepPill(sleep, wide, onSleep)
+        SleepPill(sleep, wide, narrow, onSleep)
         Spacer(Modifier.weight(1f))
-        IconTile(Icons.Rounded.Visibility, if (dimmed) "Wake screen" else "Dim screen", onDim, selected = dimmed, size = 44.dp, iconSize = 22.dp)
+        IconTile(Icons.Rounded.Visibility, if (dimmed) "Wake screen" else "Dim screen", onDim, selected = dimmed, size = if (narrow) 40.dp else 44.dp, iconSize = 22.dp)
         Spacer(Modifier.width(if (wide) 8.dp else 6.dp))
-        IconTile(Icons.Rounded.Settings, "Settings", onSettings, size = 44.dp, iconSize = 22.dp)
+        IconTile(Icons.Rounded.Settings, "Settings", onSettings, size = if (narrow) 40.dp else 44.dp, iconSize = 22.dp)
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
 }
@@ -144,13 +145,13 @@ private fun ModeChip(label: String, icon: androidx.compose.ui.graphics.vector.Im
 }
 
 @Composable
-private fun Clock(wide: Boolean, onClick: () -> Unit) {
+private fun Clock(wide: Boolean, narrow: Boolean, onClick: () -> Unit) {
     val c = Nocturne.colors
     val now by produceState(LocalDateTime.now()) {
         while (true) { value = LocalDateTime.now(); delay(1000) }
     }
     Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp), verticalAlignment = Alignment.Bottom) {
-        Text(now.format(HM), color = c.textPrimary, fontSize = if (wide) 30.sp else 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        Text(now.format(HM), color = c.textPrimary, fontSize = if (wide) 30.sp else if (narrow) 22.sp else 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
         if (wide) {
             Text(now.format(SS), color = c.textMuted, fontSize = 14.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
             
@@ -165,7 +166,7 @@ private val SS: DateTimeFormatter = DateTimeFormatter.ofPattern("ss")
 private val DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, MMM d")
 
 @Composable
-private fun SleepPill(sleep: SleepTimerState, wide: Boolean, onClick: () -> Unit) {
+private fun SleepPill(sleep: SleepTimerState, wide: Boolean, narrow: Boolean, onClick: () -> Unit) {
     val c = Nocturne.colors
     val active = sleep.isActive
     val bg = if (active) (if (sleep.waitingForTrackToEnd) c.secondary.copy(alpha = 0.18f) else c.accentContainer) else c.surfaceHigh
@@ -178,12 +179,15 @@ private fun SleepPill(sleep: SleepTimerState, wide: Boolean, onClick: () -> Unit
     Row(
         Modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(bg)
             .border(1.dp, fg.copy(alpha = if (active) 0.5f else 0.25f), RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick).padding(horizontal = if (wide) 14.dp else 10.dp),
+            .clickable(onClick = onClick).padding(horizontal = if (wide) 14.dp else if (narrow && !active) 11.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Rounded.Bedtime, "Sleep timer", tint = fg, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(text, color = fg, style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace)
+        // On a narrow (portrait) header the idle pill is just the moon; the countdown shows once a timer runs.
+        if (!narrow || active) {
+            Spacer(Modifier.width(6.dp))
+            Text(text, color = fg, style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace)
+        }
     }
 }
 

@@ -54,7 +54,7 @@ fun SleepTimerDialog(
     var custom by remember { mutableStateOf("45") }
     var finishTrack by remember { mutableStateOf(sleep.finishCurrentTrack) }
 
-    FullDialog(onDismiss, "Bedside Sleep Timer", "Drift off to your music", Icons.Rounded.Bedtime, maxWidth = 640.dp) {
+    FullDialog(onDismiss, "Sleep Timer", "Drift off to your music", Icons.Rounded.Bedtime, maxWidth = 640.dp) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (sleep.isActive) ActiveTimerCard(sleep, onExtend, onCancel)
 
@@ -78,7 +78,7 @@ fun SleepTimerDialog(
                     Modifier.width(150.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
                 val mins = custom.toIntOrNull()
-                PrimaryButton("Start ${custom.ifEmpty { "?" }} min timer", { if (mins != null && mins > 0) { onStart(mins, finishTrack); onDismiss() } }, Modifier.weight(1f), enabled = mins != null && mins > 0)
+                PrimaryButton("Start ${custom.ifEmpty { "?" }} min", { if (mins != null && mins > 0) { onStart(mins, finishTrack); onDismiss() } }, Modifier.weight(1f), enabled = mins != null && mins > 0)
             }
 
             Row(
@@ -108,14 +108,16 @@ fun SleepTimerDialog(
 @Composable
 private fun ActiveTimerCard(sleep: SleepTimerState, onExtend: (Int) -> Unit, onCancel: () -> Unit) {
     val c = Nocturne.colors
-    val sideBySide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600
+    val sideBySide = !isNarrowWindow()
     val shape = RoundedCornerShape(18.dp)
     val countdown = if (sleep.waitingForTrackToEnd) "Waiting for song to end..." else "%d:%02d".format(sleep.remainingSeconds / 60, sleep.remainingSeconds % 60)
     val note = if (sleep.finishCurrentTrack) "Finishes the current song first" else "Stops when the time is up"
-    val actions: @Composable () -> Unit = {
-        SecondaryButton("+15m", { onExtend(15) }, icon = Icons.Rounded.Add)
-        SecondaryButton("+30m", { onExtend(30) }, icon = Icons.Rounded.Add)
-        SecondaryButton("Cancel", onCancel, icon = Icons.Rounded.Close, tint = c.danger)
+    val actions: @Composable (Modifier) -> Unit = { m ->
+        // Icons are dropped in the stacked (portrait) layout so "Cancel" is not cut off.
+        val icons = sideBySide
+        SecondaryButton("+15m", { onExtend(15) }, m, icon = if (icons) Icons.Rounded.Add else null)
+        SecondaryButton("+30m", { onExtend(30) }, m, icon = if (icons) Icons.Rounded.Add else null)
+        SecondaryButton("Cancel", onCancel, m, icon = if (icons) Icons.Rounded.Close else null, tint = c.danger)
     }
     Column(
         Modifier.fillMaxWidth().clip(shape).background(c.accentContainer).border(1.dp, c.accent.copy(alpha = 0.4f), shape).padding(12.dp),
@@ -134,12 +136,12 @@ private fun ActiveTimerCard(sleep: SleepTimerState, onExtend: (Int) -> Unit, onC
             }
             if (sideBySide) {
                 Spacer(Modifier.width(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { actions() }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { actions(Modifier) }
             }
         }
         if (!sideBySide) {
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { actions() }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { actions(Modifier.weight(1f)) }
         }
     }
 }
