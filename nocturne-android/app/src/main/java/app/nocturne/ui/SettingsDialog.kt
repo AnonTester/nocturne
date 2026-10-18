@@ -253,6 +253,27 @@ private fun LauncherTab(vm: MainViewModel, settings: AppSettings, homeSignal: In
             settings.deviceVolumeMax,
         ) { vm.setDeviceVolumeMax(it) }
         SectionLabel("Display")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Auto-dim", color = Nocturne.colors.textPrimary, style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Shows the dim clock screen by itself after this long without a touch. Tap the screen to wake it.",
+                color = Nocturne.colors.textSecondary, style = MaterialTheme.typography.bodySmall,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((secs, label) in listOf(0 to "Never", 30 to "30 s", 60 to "1 min", 120 to "2 min", 300 to "5 min")) {
+                    val on = settings.autoDimSeconds == secs
+                    Box(
+                        Modifier.weight(1f).height(44.dp).clip(ControlShape)
+                            .background(if (on) Nocturne.colors.accentContainer else Nocturne.colors.surfaceHigh)
+                            .border(1.dp, if (on) Nocturne.colors.accent.copy(alpha = 0.5f) else Nocturne.colors.border, ControlShape)
+                            .clickable { vm.setAutoDimSeconds(secs) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, color = if (on) Nocturne.colors.accent else Nocturne.colors.textSecondary, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                    }
+                }
+            }
+        }
         ToggleRow("Keep awake", "Screen stays on while Nocturne is open", settings.keepAwake) { vm.setKeepAwake(it) }
         ToggleRow("Fullscreen", "Hide the status and navigation bars (swipe from the edge to show them)", settings.fullscreen) { vm.setFullscreen(it) }
         Text(

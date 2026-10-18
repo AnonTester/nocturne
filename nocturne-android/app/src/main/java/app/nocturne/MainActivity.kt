@@ -5,6 +5,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -44,9 +47,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var fullscreenWanted = false
+    private var appliedBrightness = Float.NaN
+    private val handler = Handler(Looper.getMainLooper())
+    private val rehide = Runnable { if (fullscreenWanted) hideBars() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Dialog windows, the IME and taps can leave the bars showing; whenever they appear in fullscreen, hide them again shortly after.
+        @Suppress("DEPRECATION")
+        window.decorView.setOnSystemUiVisibilityChangeListener { flags ->
+            if (fullscreenWanted && flags and View.SYSTEM_UI_FLAG_FULLSCREEN == 0) {
+                handler.removeCallbacks(rehide)
+                handler.postDelayed(rehide, 2500)
+            }
+        }
         audioPermissionGranted = hasAudioPermission()
         setContent {
             RootScreen(
@@ -64,6 +80,17 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         // HOME pressed while we are the home app: behave like a launcher and return to the main screen.
         if (intent.hasCategory(Intent.CATEGORY_HOME)) homeSignal++
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && fullscreenWanted) hideBars()
+    }
+
+    private fun hideBars() {
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.systemBars())
     }
 
     override fun onResume() {
@@ -91,15 +118,16 @@ class MainActivity : ComponentActivity() {
         if (keepAwake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-        if (fullscreen) {
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.systemBars())
+        if (fullscreen != fullscreenWanted) {
+            fullscreenWanted = fullscreen
+            if (fullscreen) hideBars() else WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
         }
-        val lp = window.attributes
-        lp.screenBrightness = if (brightness < 0) WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else brightness
-        window.attributes = lp
+        // Rewriting the window attributes relayouts the window (and flashed the bars), so only do it when the brightness changes.
+        if (brightness != appliedBrightness) {
+            appliedBrightness = brightness
+            val lp = window.attributes
+            lp.screenBrightness = if (brightness < 0) WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else brightness
+            window.attributes = lp
+        }
     }
 }

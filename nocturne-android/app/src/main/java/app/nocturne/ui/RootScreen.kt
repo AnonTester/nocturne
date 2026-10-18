@@ -36,6 +36,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
@@ -80,7 +82,26 @@ fun RootScreen(
                 onApplyWindow(settings.keepAwake, settings.fullscreen, if (dimmed) 0.01f else -1f)
             }
 
-            Box(Modifier.fillMaxSize().background(c.background)) {
+            // Any touch counts as activity; the screen dims on its own after the configured idle time (never while a dialog is open).
+            var lastTouch by remember { mutableStateOf(0L) }
+            LaunchedEffect(settings.autoDimSeconds, dialog, dimmed, lastTouch) {
+                if (settings.autoDimSeconds > 0 && dialog == null && !dimmed) {
+                    kotlinx.coroutines.delay(settings.autoDimSeconds * 1000L)
+                    dimmed = true
+                }
+            }
+
+            Box(
+                Modifier.fillMaxSize().background(c.background).pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent(PointerEventPass.Initial)
+                            val now = System.currentTimeMillis()
+                            if (now - lastTouch > 500) lastTouch = now
+                        }
+                    }
+                },
+            ) {
                 // Fullscreen hides the bars; older Android versions still report their insets, so only keep clear of the cutout then.
                 val insets = if (settings.fullscreen) WindowInsets.displayCutout else WindowInsets.safeDrawing
                 BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(insets)) {
@@ -126,18 +147,20 @@ fun RootScreen(
                         onWake = { dimmed = false },
                     )
                 }
-            }
 
-            when (dialog) {
-                Dlg.SLEEP -> SleepTimerDialog(player.sleep, { dialog = null }, vm::startSleepTimer, vm::cancelSleepTimer, vm::extendSleepTimer)
-                Dlg.ALBUMS -> AlbumsDialog(vm) { dialog = null }
-                Dlg.LIBRARY -> TracksDialog(vm, player.track?.id) { dialog = null }
-                Dlg.SETTINGS -> SettingsDialog(
-                    vm, settings, settingsTab, hasAudioPermission, homeSignal, onRequestPermissions, onPickFolder,
-                    onOpenApps = { dialog = Dlg.APPS }, onDismiss = { dialog = null },
-                )
-                Dlg.APPS -> AppsDialog { dialog = null }
-                null -> {}
+                Box(Modifier.fillMaxSize().windowInsetsPadding(insets)) {
+                when (dialog) {
+                    Dlg.SLEEP -> SleepTimerDialog(player.sleep, { dialog = null }, vm::startSleepTimer, vm::cancelSleepTimer, vm::extendSleepTimer)
+                    Dlg.ALBUMS -> AlbumsDialog(vm) { dialog = null }
+                    Dlg.LIBRARY -> TracksDialog(vm, player.track?.id) { dialog = null }
+                    Dlg.SETTINGS -> SettingsDialog(
+                        vm, settings, settingsTab, hasAudioPermission, homeSignal, onRequestPermissions, onPickFolder,
+                        onOpenApps = { dialog = Dlg.APPS }, onDismiss = { dialog = null },
+                    )
+                    Dlg.APPS -> AppsDialog { dialog = null }
+                    null -> {}
+                }
+                }
             }
         }
     }

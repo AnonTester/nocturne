@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
@@ -50,6 +51,8 @@ data class AppSettings(
     val fullscreen: Boolean = true,
     /** Raise the Android media volume to maximum when playback starts, so the in-app volume is the only control. */
     val deviceVolumeMax: Boolean = true,
+    /** Seconds of inactivity before the dim screen starts by itself; 0 = never. */
+    val autoDimSeconds: Int = 0,
     val mode: AppMode = AppMode.MUSIC,
     val lastTrackId: String = "",
     val smbLastScan: Long = 0,
@@ -69,6 +72,7 @@ class SettingsRepository(private val context: Context) {
         val keepAwake = booleanPreferencesKey("keep_awake")
         val fullscreen = booleanPreferencesKey("fullscreen")
         val deviceVolumeMax = booleanPreferencesKey("device_volume_max")
+        val autoDim = intPreferencesKey("auto_dim_seconds")
         val mode = stringPreferencesKey("mode")
         val lastTrack = stringPreferencesKey("last_track")
         val smbLastScan = longPreferencesKey("smb_last_scan")
@@ -96,6 +100,7 @@ class SettingsRepository(private val context: Context) {
             keepAwake = p[K.keepAwake] ?: d.keepAwake,
             fullscreen = p[K.fullscreen] ?: d.fullscreen,
             deviceVolumeMax = p[K.deviceVolumeMax] ?: d.deviceVolumeMax,
+            autoDimSeconds = p[K.autoDim] ?: d.autoDimSeconds,
             mode = p[K.mode]?.let { runCatching { AppMode.valueOf(it) }.getOrNull() } ?: d.mode,
             lastTrackId = p[K.lastTrack] ?: "",
             smbLastScan = p[K.smbLastScan] ?: 0L,
@@ -129,6 +134,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setKeepAwake(v: Boolean) = edit { it[K.keepAwake] = v }
     suspend fun setFullscreen(v: Boolean) = edit { it[K.fullscreen] = v }
     suspend fun setDeviceVolumeMax(v: Boolean) = edit { it[K.deviceVolumeMax] = v }
+    suspend fun setAutoDimSeconds(v: Int) = edit { it[K.autoDim] = v }
     suspend fun setMode(v: AppMode) = edit { it[K.mode] = v.name }
     suspend fun setLastTrack(id: String) = edit { it[K.lastTrack] = id }
     suspend fun setSmbLastScan(at: Long) = edit { it[K.smbLastScan] = at }

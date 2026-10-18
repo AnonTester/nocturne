@@ -303,63 +303,48 @@ fun FullDialog(
     content: @Composable () -> Unit,
 ) {
     val c = Nocturne.colors
-    val fullscreen = LocalFullscreen.current
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    // Drawn inside the activity window, not as a Dialog window: a second window pulled the system bars back in on open/close.
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(c.scrim)
+            .clickable(onClick = onDismiss)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .imePadding(),
+        contentAlignment = Alignment.Center,
     ) {
-        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-        SideEffect {
-            if (window != null) {
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-                val ctl = WindowInsetsControllerCompat(window, window.decorView)
-                if (fullscreen) {
-                    ctl.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                    ctl.hide(WindowInsetsCompat.Type.systemBars())
-                }
-            }
-        }
-        Box(
+        Column(
             Modifier
+                .widthIn(max = maxWidth)
                 .fillMaxSize()
-                .background(c.scrim)
-                .clickable(onClick = onDismiss)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-                .imePadding(),
-            contentAlignment = Alignment.Center,
+                .clip(RoundedCornerShape(24.dp))
+                .background(c.surface)
+                .border(1.dp, c.border, RoundedCornerShape(24.dp))
+                .clickable(enabled = false) {},
         ) {
-            Column(
-                Modifier
-                    .widthIn(max = maxWidth)
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(c.surface)
-                    .border(1.dp, c.border, RoundedCornerShape(24.dp))
-                    .clickable(enabled = false) {},
+            Row(
+                Modifier.fillMaxWidth().padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 18.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (icon != null) {
-                        Box(
-                            Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(c.accentContainer),
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(icon, null, tint = c.accent, modifier = Modifier.size(24.dp)) }
-                        Spacer(Modifier.width(12.dp))
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text(title, color = c.textPrimary, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (subtitle != null) {
-                            Text(subtitle, color = c.textSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    headerActions()
-                    IconTile(Icons.Rounded.Close, "Close", onDismiss, size = 44.dp, container = c.surface)
+                if (icon != null) {
+                    Box(
+                        Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(c.accentContainer),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(icon, null, tint = c.accent, modifier = Modifier.size(24.dp)) }
+                    Spacer(Modifier.width(12.dp))
                 }
-                Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
-                Box(Modifier.weight(1f).fillMaxWidth()) { content() }
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = c.textPrimary, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (subtitle != null) {
+                        Text(subtitle, color = c.textSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                headerActions()
+                IconTile(Icons.Rounded.Close, "Close", onDismiss, size = 44.dp, container = c.surface)
             }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
+            Box(Modifier.weight(1f).fillMaxWidth()) { content() }
         }
     }
 }

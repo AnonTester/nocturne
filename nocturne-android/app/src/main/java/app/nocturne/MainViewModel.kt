@@ -91,6 +91,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setKeepAwake(v: Boolean) = viewModelScope.launch { app.settings.setKeepAwake(v) }
     fun setFullscreen(v: Boolean) = viewModelScope.launch { app.settings.setFullscreen(v) }
     fun setDeviceVolumeMax(v: Boolean) = viewModelScope.launch { app.settings.setDeviceVolumeMax(v) }
+    fun setAutoDimSeconds(v: Int) = viewModelScope.launch { app.settings.setAutoDimSeconds(v) }
 
     fun setMode(mode: AppMode) {
         viewModelScope.launch { app.settings.setMode(mode) }
