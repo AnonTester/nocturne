@@ -11,6 +11,9 @@ Bedside music player + Audiobookshelf "last played" widget + home-screen (launch
 - `./gradlew lintDebug` must stay at 0 errors.
 - Release: `./gradlew assembleRelease` signs with the keystore named by `NOCTURNE_KEYSTORE`, `NOCTURNE_KEYSTORE_PASSWORD`, `NOCTURNE_KEY_ALIAS`, `NOCTURNE_KEY_PASSWORD` in `~/.gradle/gradle.properties`. Never put these or the keystore in the project.
 
+## Rules on volume
+- Never change Android's media volume (shared with the ABS app). The in-app volume is a gain only; the status strip warns if the device volume is 0.
+
 ## Layout (`app/src/main/java/app/nocturne`)
 - `playback/` `PlaybackEngine` (app-scoped ExoPlayer owner: queue, shuffle, sleep timer, volume, retry), `PlaybackService` (Media3 session/notification), pure logic: `ShuffleEngine`, `VolumeCurve`, `SleepTimer`.
 - `library/` `LibraryManager` (scans, rescan loop, tag reading), `SmbShareProvider` (smbj connection), `SmbDataSource` (ExoPlayer ranged reads), `SmbReadAhead` (block buffer, essential), `SmbScanner`, `LocalScanner` (MediaStore + SAF), `MetadataEnricher`, `CoverLoader`, `Reconciler`.
@@ -24,7 +27,7 @@ Bedside music player + Audiobookshelf "last played" widget + home-screen (launch
 - A scan with unreadable folders must not delete tracks (`Reconciler(deleteMissing=false)`).
 - Scans run in `LibraryManager`'s scope, never in a composable/ViewModel scope (closing a dialog cancelled them once).
 - smbj needs BouncyCastle: `NocturneApp.installBouncyCastle()` replaces Android's trimmed "BC" provider.
-- Audiobookshelf cannot be told to play from outside (tested on app 0.14.2-beta: its media browser service rejects third-party callers, no play intent or deep link, media keys ignored until a book is loaded). Resume = open the ABS app; web item page if not installed.
+- Audiobookshelf cannot be told to play from outside (tested on app 0.14.2-beta: its media browser service rejects third-party callers, no play intent or deep link, media keys ignored until a book is loaded). The ABS screen only shows the last book and an Open button; no resume button.
 
 ## Test infrastructure used during development (not part of the repo)
 - Emulator AVDs `nocturne_op3` (API 34) and `nocturne_api28` (Android 9, closest to the OnePlus 3), both 1080x1920 at 420 dpi. Rotate headless with `adb emu rotate`.

@@ -97,18 +97,10 @@ fun AudiobookshelfStage(vm: MainViewModel, cfg: AbsConfig, onSettings: () -> Uni
                 Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center) {
                     SectionLabel("Audiobookshelf")
                     Spacer(Modifier.height(10.dp))
-                    if (book != null) {
-                        PrimaryButton(
-                            "Resume “${book.title}”",
-                            { message = AbsLauncher.resume(context, cfg, book) },
-                            Modifier.fillMaxWidth().height(60.dp),
-                            icon = Icons.Rounded.PlayArrow, container = c.secondary, content = c.onSecondary,
-                        )
-                        Spacer(Modifier.height(10.dp))
-                    }
-                    SecondaryButton(
+                    PrimaryButton(
                         "Open Audiobookshelf", { message = AbsLauncher.open(context, cfg) },
-                        Modifier.fillMaxWidth().height(if (book == null) 60.dp else 48.dp), icon = Icons.Rounded.OpenInNew,
+                        Modifier.fillMaxWidth().height(60.dp),
+                        icon = Icons.Rounded.OpenInNew, container = c.secondary, content = c.onSecondary,
                     )
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

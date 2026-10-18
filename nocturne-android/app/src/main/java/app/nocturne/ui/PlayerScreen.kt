@@ -52,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -497,6 +498,8 @@ private fun StatusStrip(p: PlayerState, trackCount: Int, vm: MainViewModel) {
     val c = Nocturne.colors
     val pending by vm.pendingMetadata.collectAsState()
     val lib by vm.libraryStatus.collectAsState()
+    val deviceVolume by rememberDeviceMusicVolume()
+    val silentDevice = deviceVolume == 0 && (p.status == PlayStatus.PLAYING || p.status == PlayStatus.LOADING)
     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(7.dp).background(c.accent, CircleShape))
         Spacer(Modifier.width(8.dp))
@@ -508,11 +511,35 @@ private fun StatusStrip(p: PlayerState, trackCount: Int, vm: MainViewModel) {
         )
         Spacer(Modifier.width(8.dp))
         val right = when {
+            silentDevice -> "Android media volume is 0: use the volume keys"
             lib.scanning -> "Scanning..."
             pending > 0 -> "Reading tags: $pending left"
             p.sleep.isActive -> "Sleep in ${(p.sleep.remainingSeconds + 59) / 60}m"
             else -> "Bedside ready"
         }
-        Text(right, color = c.textMuted, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        Text(right, color = if (silentDevice) c.danger else c.textMuted, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
+}
+
+/**
+ * Android's media volume (shared with other apps such as Audiobookshelf). Nocturne never changes it; this only
+ * lets the status line explain a silent player when the device volume is 0.
+ */
+@Composable
+private fun rememberDeviceMusicVolume(): androidx.compose.runtime.State<Int> {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val am = remember { context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager }
+    val volume = remember { mutableIntStateOf(am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)) }
+    androidx.compose.runtime.DisposableEffect(am) {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: android.content.Context?, i: android.content.Intent?) {
+                volume.intValue = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            }
+        }
+        // "VOLUME_CHANGED_ACTION" is not a public constant but is broadcast on every volume change on all Android versions.
+        context.registerReceiver(receiver, android.content.IntentFilter("android.media.VOLUME_CHANGED_ACTION"))
+        volume.intValue = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    return volume
 }
