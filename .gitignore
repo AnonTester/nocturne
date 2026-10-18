@@ -3,14 +3,10 @@ creds
 *.jks
 *.keystore
 local.properties
-# build output and the downloaded AI Studio export
+# build output
 *.zip
 **/build/
 .gradle/
-baseline/node_modules/
-nocturne-android/dist/
-nocturne-android/app/schemas/
-
-# AI Studio export used as design reference (contains example LAN IP placeholders); kept locally only
-baseline/
 .kotlin/
+dist/
+app/schemas/

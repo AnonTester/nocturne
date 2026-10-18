@@ -4,6 +4,16 @@ A native Android bedside music player and home-screen (launcher) app. Plays musi
 
 Kotlin, Jetpack Compose, Media3 ExoPlayer, smbj, Room. `minSdk 26` (Android 8.0), `targetSdk 34`, application id `app.nocturne.bedside`.
 
+## Screenshots
+
+| Music | Audiobookshelf |
+|---|---|
+| ![Music screen](docs/screenshots/music.png) | ![Audiobookshelf screen](docs/screenshots/audiobookshelf.png) |
+
+| Sleep timer | Settings: theme | Settings: launcher |
+|---|---|---|
+| ![Sleep timer](docs/screenshots/sleep-timer.png) | ![Theme settings](docs/screenshots/settings-theme.png) | ![Launcher settings](docs/screenshots/settings-launcher.png) |
+
 ## Requirements
 
 ### To build (Linux/macOS/Windows host)
