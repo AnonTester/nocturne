@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -90,6 +91,7 @@ import kotlinx.coroutines.delay
 fun Header(
     mode: AppMode,
     wide: Boolean,
+    labels: Boolean,
     sleep: SleepTimerState,
     dimmed: Boolean,
     onMode: (AppMode) -> Unit,
@@ -107,8 +109,8 @@ fun Header(
             Modifier.clip(RoundedCornerShape(16.dp)).background(c.surfaceHigh).border(1.dp, c.border, RoundedCornerShape(16.dp)).padding(3.dp),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            ModeChip("Music", Icons.Rounded.Album, mode == AppMode.MUSIC, wide, c.accent, c.onAccent) { onMode(AppMode.MUSIC) }
-            ModeChip("Audiobookshelf", Icons.Rounded.MenuBook, mode == AppMode.AUDIOBOOKSHELF, wide, c.secondary, c.onSecondary) { onMode(AppMode.AUDIOBOOKSHELF) }
+            ModeChip("Music", Icons.Rounded.Album, mode == AppMode.MUSIC, labels, c.accent, c.onAccent) { onMode(AppMode.MUSIC) }
+            ModeChip("Audiobookshelf", Icons.Rounded.MenuBook, mode == AppMode.AUDIOBOOKSHELF, labels, c.secondary, c.onSecondary) { onMode(AppMode.AUDIOBOOKSHELF) }
         }
         Spacer(Modifier.weight(1f))
         Clock(wide = wide, onClick = onDim)
@@ -200,17 +202,19 @@ fun MusicStage(
     BoxWithConstraints(Modifier.fillMaxSize().padding(10.dp)) {
         val landscape = maxWidth > maxHeight
         if (landscape) {
-            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Panel(Modifier.weight(0.38f).fillMaxHeight()) {
-                    NowPlayingColumn(vm, player, onAlbums, onLibrary, coverFill = true, modifier = Modifier.fillMaxSize().padding(10.dp))
-                }
-                Column(Modifier.weight(0.62f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Panel(Modifier.weight(1f).fillMaxWidth()) {
-                        Transport(vm, player, compact = false, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp))
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Panel(Modifier.weight(0.38f).fillMaxHeight()) {
+                        NowPlayingColumn(vm, player, onAlbums, onLibrary, coverFill = true, modifier = Modifier.fillMaxSize().padding(10.dp))
                     }
-                    VolumePanel(vm, player)
-                    StatusStrip(player, trackCount, vm)
+                    Column(Modifier.weight(0.62f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Panel(Modifier.weight(1f).fillMaxWidth()) {
+                            Transport(vm, player, compact = false, modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp))
+                        }
+                        VolumePanel(vm, player, inline = true)
+                    }
                 }
+                StatusStrip(player, trackCount, vm)
             }
         } else {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -220,7 +224,7 @@ fun MusicStage(
                 Panel(Modifier.fillMaxWidth()) {
                     Transport(vm, player, compact = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp))
                 }
-                VolumePanel(vm, player)
+                VolumePanel(vm, player, inline = false)
                 StatusStrip(player, trackCount, vm)
             }
         }
@@ -352,30 +356,32 @@ private fun Transport(vm: MainViewModel, player: PlayerState, compact: Boolean, 
     val fraction = if (duration > 0) (shown.toFloat() / duration).coerceIn(0f, 1f) else 0f
 
     Column(modifier, verticalArrangement = Arrangement.Center) {
-        Slider(
-            value = fraction,
-            onValueChange = { dragging = true; dragValue = it },
-            onValueChangeFinished = { vm.seekTo((dragValue * duration).toLong()); dragging = false },
-            enabled = duration > 0,
-            colors = sliderColors(),
-        )
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatTime(shown), color = c.textSecondary, style = MaterialTheme.typography.labelSmall)
+        // Elapsed | seek bar | remaining on one line: keeps the transport row tall enough on a 360 dp high screen.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(formatTime(shown), color = c.textSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.widthIn(min = 34.dp))
+            CompactSlider(
+                value = fraction,
+                onValueChange = { dragging = true; dragValue = it },
+                onValueChangeFinished = { vm.seekTo((dragValue * duration).toLong()); dragging = false },
+                enabled = duration > 0,
+                modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
+            )
             Text(
                 if (duration > 0) "-" + formatTime(duration - shown) else "--:--",
-                color = c.textMuted, style = MaterialTheme.typography.labelSmall,
+                color = c.textMuted, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.End, modifier = Modifier.widthIn(min = 38.dp),
             )
         }
-        Spacer(Modifier.height(if (compact) 6.dp else 10.dp))
-        val small = if (compact) 44.dp else 52.dp
-        val mid = if (compact) 48.dp else 56.dp
-        val big = if (compact) 64.dp else 72.dp
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            IconTile(Icons.Rounded.Shuffle, "Shuffle", vm::toggleShuffle, size = small, selected = player.shuffle)
-            JumpButton(back = true, size = small) { vm.jump(-15_000) }
-            IconTile(Icons.Rounded.SkipPrevious, "Previous", vm::previous, size = mid, iconSize = 28.dp, tint = c.textPrimary)
+        Spacer(Modifier.height(if (compact) 8.dp else 6.dp))
+        val key = if (compact) 52.dp else 56.dp
+        val playH = if (compact) 60.dp else 64.dp
+        val gap = if (compact) 4.dp else 6.dp
+        // Shuffle, previous, -15s, PLAY, +15s, next, repeat: the seek keys sit next to play, the track keys outside them.
+        Row(Modifier.fillMaxWidth().height(playH), horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
+            TransportKey(Icons.Rounded.Shuffle, "Shuffle", Modifier.weight(1f), key, selected = player.shuffle, onClick = vm::toggleShuffle)
+            TransportKey(Icons.Rounded.SkipPrevious, "Previous", Modifier.weight(1f), key, tint = c.textPrimary, onClick = vm::previous)
+            TransportKey(Icons.Rounded.RotateLeft, "Back 15 seconds", Modifier.weight(1f), key, badge = "15") { vm.jump(-15_000) }
             Box(
-                Modifier.size(big).clip(RoundedCornerShape(22.dp)).background(c.accent).clickable { vm.toggle() },
+                Modifier.weight(1.5f).height(playH).clip(ControlShape).background(c.accent).clickable { vm.toggle() },
                 contentAlignment = Alignment.Center,
             ) {
                 if (player.status == PlayStatus.LOADING) {
@@ -384,29 +390,43 @@ private fun Transport(vm: MainViewModel, player: PlayerState, compact: Boolean, 
                     Icon(if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (isPlaying) "Pause" else "Play", tint = c.onAccent, modifier = Modifier.size(40.dp))
                 }
             }
-            IconTile(Icons.Rounded.SkipNext, "Next", { vm.next() }, size = mid, iconSize = 28.dp, tint = c.textPrimary)
-            JumpButton(back = false, size = small) { vm.jump(15_000) }
-            IconTile(
+            TransportKey(Icons.Rounded.RotateRight, "Forward 15 seconds", Modifier.weight(1f), key, badge = "15") { vm.jump(15_000) }
+            TransportKey(Icons.Rounded.SkipNext, "Next", Modifier.weight(1f), key, tint = c.textPrimary) { vm.next() }
+            TransportKey(
                 if (player.repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                "Repeat ${player.repeat.name.lowercase()}", vm::cycleRepeat, size = small, selected = player.repeat != RepeatMode.OFF,
+                "Repeat ${player.repeat.name.lowercase()}", Modifier.weight(1f), key, selected = player.repeat != RepeatMode.OFF, onClick = vm::cycleRepeat,
             )
         }
         if (player.error != null) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
             Text(player.error, color = c.danger, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
+/** A tall transport key that stretches to its row slot; height matches the other 48 dp+ buttons on screen. */
 @Composable
-private fun JumpButton(back: Boolean, size: Dp, onClick: () -> Unit) {
+private fun TransportKey(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    modifier: Modifier,
+    height: Dp,
+    selected: Boolean = false,
+    tint: Color? = null,
+    badge: String? = null,
+    onClick: () -> Unit,
+) {
     val c = Nocturne.colors
+    val fg = tint ?: if (selected) c.accent else c.textSecondary
     Box(
-        Modifier.size(size).clip(ControlShape).background(c.surfaceHigh).border(1.dp, c.border, ControlShape).clickable(onClick = onClick),
+        modifier.height(height).clip(ControlShape)
+            .background(if (selected) c.accentContainer else c.surfaceHigh)
+            .border(1.dp, if (selected) c.accent.copy(alpha = 0.5f) else c.border, ControlShape)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(if (back) Icons.Rounded.RotateLeft else Icons.Rounded.RotateRight, if (back) "Back 15 seconds" else "Forward 15 seconds", tint = c.textSecondary, modifier = Modifier.size(size * 0.58f))
-        Text("15", color = c.textSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Icon(icon, description, tint = fg, modifier = Modifier.size(if (badge != null) 30.dp else 26.dp))
+        if (badge != null) Text(badge, color = fg, fontSize = 9.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -414,46 +434,54 @@ private fun JumpButton(back: Boolean, size: Dp, onClick: () -> Unit) {
 
 @UnstableApi
 @Composable
-private fun VolumePanel(vm: MainViewModel, p: PlayerState) {
+private fun VolumePanel(vm: MainViewModel, p: PlayerState, inline: Boolean) {
     val c = Nocturne.colors
+    // Slider steps are 0.5 %; drawing 200 tick marks made the track look like a double line, so snap in code instead.
+    val slider: @Composable (Modifier) -> Unit = { m ->
+        CompactSlider(p.volume / 100f, { vm.setVolume(Math.round(it * 200f) / 2f) }, modifier = m)
+    }
+    val whisper: @Composable () -> Unit = {
+        val wBg = if (p.whisper) c.accentContainer else c.surfaceHigh
+        val wFg = if (p.whisper) c.accent else c.textSecondary
+        Row(
+            Modifier.height(44.dp).clip(ControlShape).background(wBg)
+                .border(1.dp, wFg.copy(alpha = if (p.whisper) 0.5f else 0.25f), ControlShape)
+                .clickable { vm.toggleWhisper() }.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.Shield, null, tint = wFg, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Whisper", color = wFg, style = MaterialTheme.typography.labelLarge)
+        }
+    }
     Panel(Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(if (inline) 6.dp else 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconTile(
                     if (p.muted) Icons.Rounded.VolumeOff else if (p.volume < 25f) Icons.Rounded.VolumeDown else Icons.Rounded.VolumeUp,
-                    if (p.muted) "Unmute" else "Mute", vm::toggleMute, size = 40.dp, iconSize = 22.dp,
+                    if (p.muted) "Unmute" else "Mute", vm::toggleMute, size = 44.dp, iconSize = 22.dp,
                     selected = p.muted, selectedContainer = c.danger.copy(alpha = 0.18f), selectedTint = c.danger,
                 )
                 Spacer(Modifier.width(10.dp))
-                Text(if (p.muted) "Muted" else "%.1f%%".format(p.volume), color = c.textPrimary, style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "(" + (if (p.muted) "-∞" else VolumeCurve.decibels(p.volume, p.whisper).toString()) + " dB)",
-                    color = c.textMuted, style = MaterialTheme.typography.labelSmall,
-                )
-                Spacer(Modifier.weight(1f))
-                val wBg = if (p.whisper) c.accentContainer else c.surfaceHigh
-                val wFg = if (p.whisper) c.accent else c.textSecondary
-                Row(
-                    Modifier.height(40.dp).clip(RoundedCornerShape(12.dp)).background(wBg)
-                        .border(1.dp, wFg.copy(alpha = if (p.whisper) 0.5f else 0.25f), RoundedCornerShape(12.dp))
-                        .clickable { vm.toggleWhisper() }.padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Rounded.Shield, null, tint = wFg, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Whisper", color = wFg, style = MaterialTheme.typography.labelLarge)
+                Column {
+                    Text(if (p.muted) "Muted" else "%.1f%%".format(p.volume), color = c.textPrimary, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "(" + (if (p.muted) "-∞" else VolumeCurve.decibels(p.volume, p.whisper).toString()) + " dB)",
+                        color = c.textMuted, style = MaterialTheme.typography.labelSmall,
+                    )
                 }
+                if (inline) slider(Modifier.weight(1f).padding(horizontal = 10.dp)) else Spacer(Modifier.weight(1f))
+                whisper()
             }
-            Slider(value = p.volume, onValueChange = vm::setVolume, valueRange = 0f..100f, steps = 199, colors = sliderColors())
+            if (!inline) slider(Modifier.fillMaxWidth())
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for ((label, delta) in listOf("-1.0%" to -1f, "-0.5%" to -0.5f, "+0.5%" to 0.5f, "+1.0%" to 1f)) {
                     Box(
-                        Modifier.weight(1f).height(38.dp).clip(RoundedCornerShape(12.dp)).background(c.surfaceHigh)
-                            .border(1.dp, c.border, RoundedCornerShape(12.dp)).clickable { vm.adjustVolume(delta) },
+                        Modifier.weight(1f).height(48.dp).clip(ControlShape).background(c.surfaceHigh)
+                            .border(1.dp, c.border, ControlShape).clickable { vm.adjustVolume(delta) },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(label, color = if (kotlin.math.abs(delta) < 1f) c.accent else c.textSecondary, style = MaterialTheme.typography.labelSmall)
+                        Text(label, color = if (kotlin.math.abs(delta) < 1f) c.accent else c.textSecondary, style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }

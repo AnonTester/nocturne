@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -264,6 +266,26 @@ fun sliderColors() = Nocturne.colors.let {
         activeTrackColor = it.accent,
         inactiveTrackColor = it.border,
     )
+}
+
+/**
+ * Slider that takes ~36 dp of height instead of Material's 48 dp touch target. The thumb may overhang the box slightly,
+ * which is invisible; this is what lets the transport fit on a 360 dp tall landscape screen.
+ */
+@Composable
+fun CompactSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    onValueChangeFinished: (() -> Unit)? = null,
+    enabled: Boolean = true,
+) {
+    Box(modifier.height(36.dp), contentAlignment = Alignment.Center) {
+        Slider(
+            value = value.coerceIn(0f, 1f), onValueChange = onValueChange, onValueChangeFinished = onValueChangeFinished,
+            enabled = enabled, colors = sliderColors(), modifier = Modifier.wrapContentHeight(unbounded = true),
+        )
+    }
 }
 
 /**

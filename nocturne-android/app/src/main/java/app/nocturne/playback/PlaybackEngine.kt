@@ -144,6 +144,7 @@ class PlaybackEngine(
 
     fun play() {
         cancelFade()
+        raiseDeviceVolume()
         val st = _state.value
         val track = st.track ?: return
         if (loadedTrackId != track.id) {
@@ -331,6 +332,18 @@ class PlaybackEngine(
     }
 
     // ---------------------------------------------------------------- volume
+
+    /** The in-app slider is only a gain on top of Android's media volume, so a muted or low device volume made it look dead. */
+    private fun raiseDeviceVolume() {
+        scope.launch {
+            if (!settings.flow.first().deviceVolumeMax) return@launch
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            if (am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) < max) {
+                runCatching { am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, max, 0) }
+            }
+        }
+    }
 
     private fun applyGain() {
         val s = _state.value

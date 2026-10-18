@@ -84,10 +84,11 @@ fun RootScreen(
                 // Fullscreen hides the bars; older Android versions still report their insets, so only keep clear of the cutout then.
                 val insets = if (settings.fullscreen) WindowInsets.displayCutout else WindowInsets.safeDrawing
                 BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(insets)) {
-                    val wide = maxWidth >= 600.dp
+                    val wide = maxWidth >= 560.dp
+                    val labels = maxWidth >= 800.dp
                     Column(Modifier.fillMaxSize()) {
                         Header(
-                            mode = settings.mode, wide = wide, sleep = player.sleep, dimmed = dimmed,
+                            mode = settings.mode, wide = wide, labels = labels, sleep = player.sleep, dimmed = dimmed,
                             onMode = vm::setMode, onSleep = { dialog = Dlg.SLEEP },
                             onDim = { dimmed = !dimmed }, onSettings = { settingsTab = SettingsTab.THEME; dialog = Dlg.SETTINGS },
                         )

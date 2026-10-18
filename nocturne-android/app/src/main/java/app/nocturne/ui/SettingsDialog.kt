@@ -246,6 +246,12 @@ private fun LauncherTab(vm: MainViewModel, settings: AppSettings, homeSignal: In
             SecondaryButton("Open other apps", onOpenApps, Modifier.weight(1f), icon = Icons.Rounded.Apps)
             SecondaryButton("Android settings", { InstalledApps.openSystemSettings(context) }, Modifier.weight(1f), icon = Icons.Rounded.Settings)
         }
+        SectionLabel("Audio")
+        ToggleRow(
+            "Device volume at maximum",
+            "Raises Android's media volume to full when playback starts, so the volume in Nocturne is the real control. Turn off to keep the hardware volume keys in charge.",
+            settings.deviceVolumeMax,
+        ) { vm.setDeviceVolumeMax(it) }
         SectionLabel("Display")
         ToggleRow("Keep awake", "Screen stays on while Nocturne is open", settings.keepAwake) { vm.setKeepAwake(it) }
         ToggleRow("Fullscreen", "Hide the status and navigation bars (swipe from the edge to show them)", settings.fullscreen) { vm.setFullscreen(it) }
