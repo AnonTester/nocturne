@@ -40,25 +40,35 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.delay
 
-/** How often the standby content fades out and reappears elsewhere, against burn-in. */
-private const val MOVE_INTERVAL_MS = 5 * 60 * 1000L
-private const val FADE_MS = 900
+/** Fade time of the burn-in move; the content is gone exactly when the minute changes. */
+private const val FADE_MS = 1500
+private const val MINUTE_MS = 60_000L
 
 /**
  * Nearly-black standby screen; tap anywhere to wake. Shows the time and what is playing.
- * It starts centred and every few minutes fades out and back in at another spot (burn-in protection).
+ * It starts centred and every minute fades out in the old minute and back in at another spot in the new one
+ * (burn-in protection).
  * The spot is a fraction of the free space around the content, so it always stays fully on screen.
  */
 @Composable
 fun DimOverlay(title: String, artist: String, onWake: () -> Unit) {
     val c = Nocturne.colors
-    val now by produceState(LocalTime.now()) { while (true) { value = LocalTime.now(); delay(1000) } }
+    val now by produceState(LocalTime.now()) {
+        while (true) {
+            value = LocalTime.now()
+            delay(1000 - System.currentTimeMillis() % 1000) // tick on the second so the minute flips on time
+        }
+    }
     var spot by remember { mutableStateOf(0f to 0f) }
     val alpha = remember { Animatable(1f) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(MOVE_INTERVAL_MS)
+            val toNextMinute = MINUTE_MS - System.currentTimeMillis() % MINUTE_MS
+            val minuteChange = System.currentTimeMillis() + toNextMinute
+            if (toNextMinute <= FADE_MS) { delay(toNextMinute); continue } // too late to fade out in this minute
+            delay(toNextMinute - FADE_MS)
             alpha.animateTo(0f, tween(FADE_MS))
+            delay((minuteChange - System.currentTimeMillis()).coerceAtLeast(0))
             val old = spot
             var next = old
             repeat(20) {
@@ -89,7 +99,6 @@ fun DimOverlay(title: String, artist: String, onWake: () -> Unit) {
                     .graphicsLayer { this.alpha = alpha.value },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("Standby • tap anywhere to wake", color = c.textMuted.copy(alpha = 0.6f), style = MaterialTheme.typography.labelSmall)
                 Text(now.format(DateTimeFormatter.ofPattern("HH:mm")), color = c.textSecondary.copy(alpha = 0.7f), fontSize = 64.sp, fontFamily = FontFamily.Monospace)
                 Text(title, color = c.textMuted, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                 Text(artist, color = c.textMuted.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
