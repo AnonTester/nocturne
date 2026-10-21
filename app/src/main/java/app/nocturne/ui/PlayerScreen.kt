@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -102,11 +103,8 @@ fun Header(
     onSettings: () -> Unit,
 ) {
     val c = Nocturne.colors
-    Row(
-        Modifier.fillMaxWidth().height(if (narrow) 56.dp else 60.dp).background(c.surface).padding(horizontal = if (narrow) 8.dp else 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Mode switch (either music or audiobooks, never both)
+    // Mode switch (either music or audiobooks, never both)
+    val modeSwitch: @Composable () -> Unit = {
         Row(
             Modifier.clip(RoundedCornerShape(16.dp)).background(c.surfaceHigh).border(1.dp, c.border, RoundedCornerShape(16.dp)).padding(3.dp),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -114,14 +112,39 @@ fun Header(
             ModeChip("Music", Icons.Rounded.Album, mode == AppMode.MUSIC, labels, c.accent, c.onAccent) { onMode(AppMode.MUSIC) }
             ModeChip("Audiobookshelf", Icons.Rounded.MenuBook, mode == AppMode.AUDIOBOOKSHELF, labels, c.secondary, c.onSecondary) { onMode(AppMode.AUDIOBOOKSHELF) }
         }
-        Spacer(Modifier.weight(1f))
-        Clock(wide = wide, narrow = narrow, onClick = onDim)
-        Spacer(Modifier.width(if (wide) 10.dp else 6.dp))
-        SleepPill(sleep, wide, narrow, onSleep)
-        Spacer(Modifier.weight(1f))
+    }
+    val tiles: @Composable () -> Unit = {
         IconTile(Icons.Rounded.Visibility, if (dimmed) "Wake screen" else "Dim screen", onDim, selected = dimmed, size = if (narrow) 40.dp else 44.dp, iconSize = 22.dp)
         Spacer(Modifier.width(if (wide) 8.dp else 6.dp))
         IconTile(Icons.Rounded.Settings, "Settings", onSettings, size = if (narrow) 40.dp else 44.dp, iconSize = 22.dp)
+    }
+    Row(
+        Modifier.fillMaxWidth().height(if (narrow) 56.dp else 60.dp).background(c.surface).padding(horizontal = if (narrow) 8.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (wide) {
+            // Equal-weight sides keep the HH:mm exactly centred; sleep sits left of it, seconds and date right of it.
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                modeSwitch()
+                Spacer(Modifier.weight(1f))
+                SleepPill(sleep, wide, narrow, onSleep)
+                Spacer(Modifier.width(10.dp))
+            }
+            ClockTime(wide = true, narrow = false, onClick = onDim)
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                ClockDetail(onClick = onDim)
+                Spacer(Modifier.weight(1f))
+                tiles()
+            }
+        } else {
+            modeSwitch()
+            Spacer(Modifier.weight(1f))
+            SleepPill(sleep, wide, narrow, onSleep)
+            Spacer(Modifier.width(6.dp))
+            ClockTime(wide = false, narrow = narrow, onClick = onDim)
+            Spacer(Modifier.weight(1f))
+            tiles()
+        }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
 }
@@ -145,19 +168,28 @@ private fun ModeChip(label: String, icon: androidx.compose.ui.graphics.vector.Im
 }
 
 @Composable
-private fun Clock(wide: Boolean, narrow: Boolean, onClick: () -> Unit) {
-    val c = Nocturne.colors
-    val now by produceState(LocalDateTime.now()) {
-        while (true) { value = LocalDateTime.now(); delay(1000) }
-    }
-    Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp), verticalAlignment = Alignment.Bottom) {
-        Text(now.format(HM), color = c.textPrimary, fontSize = if (wide) 30.sp else if (narrow) 22.sp else 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-        if (wide) {
-            Text(now.format(SS), color = c.textMuted, fontSize = 14.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
-            
+private fun rememberNow(): androidx.compose.runtime.State<LocalDateTime> = produceState(LocalDateTime.now()) {
+    while (true) { value = LocalDateTime.now(); delay(1000) }
+}
 
-            Text(now.format(DATE), color = c.textSecondary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
-        }
+@Composable
+private fun ClockTime(wide: Boolean, narrow: Boolean, onClick: () -> Unit) {
+    val c = Nocturne.colors
+    val now by rememberNow()
+    Text(
+        now.format(HM), color = c.textPrimary, fontSize = if (wide) 30.sp else if (narrow) 22.sp else 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace,
+        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp),
+    )
+}
+
+/** Seconds and date, shown right of the centred time on wide screens. */
+@Composable
+private fun ClockDetail(onClick: () -> Unit) {
+    val c = Nocturne.colors
+    val now by rememberNow()
+    Row(Modifier.offset(y = 5.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp), verticalAlignment = Alignment.Bottom) {
+        Text(now.format(SS), color = c.textMuted, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+        Text(now.format(DATE), color = c.textSecondary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp))
     }
 }
 
