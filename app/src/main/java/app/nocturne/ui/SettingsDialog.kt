@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Check
@@ -65,6 +66,7 @@ import app.nocturne.MainViewModel
 import app.nocturne.data.AbsConfig
 import app.nocturne.data.AppSettings
 import app.nocturne.data.SmbConfig
+import app.nocturne.library.FolderListing
 import app.nocturne.data.SmbSource
 import app.nocturne.data.Source
 import app.nocturne.library.TestResult
@@ -97,6 +99,8 @@ fun SettingsDialog(
 ) {
     val c = Nocturne.colors
     var tab by remember { mutableStateOf(initialTab) }
+    // The folder picker is drawn over the whole settings dialog (it cannot live inside the scrolling tab body).
+    var picker by remember { mutableStateOf<FolderPickRequest?>(null) }
     FullDialog(onDismiss, "Settings", "Nocturne bedside player", Icons.Rounded.Settings, maxWidth = 860.dp) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 600.dp
@@ -105,7 +109,7 @@ fun SettingsDialog(
                     when (tab) {
                         SettingsTab.THEME -> ThemeTab(vm, settings)
                         SettingsTab.LAUNCHER -> LauncherTab(vm, settings, homeSignal, onOpenApps)
-                        SettingsTab.LIBRARY -> LibraryTab(vm, settings, hasAudioPermission, onRequestPermissions, onPickFolder)
+                        SettingsTab.LIBRARY -> LibraryTab(vm, settings, hasAudioPermission, onRequestPermissions, onPickFolder) { picker = it }
                         SettingsTab.AUDIOBOOKS -> AudiobooksTab(vm, settings)
                     }
                 }
@@ -128,6 +132,9 @@ fun SettingsDialog(
                 }
             }
         }
+    }
+    picker?.let { req ->
+        FolderPickerDialog(vm, req, onDismiss = { picker = null }, onPick = { req.onPick(it); picker = null })
     }
 }
 
@@ -293,6 +300,7 @@ private fun LibraryTab(
     hasAudioPermission: Boolean,
     onRequestPermissions: () -> Unit,
     onPickFolder: () -> Unit,
+    onBrowse: (FolderPickRequest) -> Unit,
 ) {
     val c = Nocturne.colors
     val scope = rememberCoroutineScope()
@@ -357,7 +365,17 @@ private fun LibraryTab(
         }
         val hostField: @Composable (Modifier) -> Unit = { m -> NocturneTextField(host, { host = it }, "Server (IP or name[:port])", m, "nas.local or nas.local:445", monospace = true) }
         val shareField: @Composable (Modifier) -> Unit = { m -> NocturneTextField(share, { share = it }, "Share name", m, "music", monospace = true) }
-        val subField: @Composable (Modifier) -> Unit = { m -> NocturneTextField(sub, { sub = it }, "Subfolder (optional)", m, "Bedside/Albums", monospace = true) }
+        val subField: @Composable (Modifier) -> Unit = { m ->
+            Row(m, verticalAlignment = Alignment.CenterVertically) {
+                NocturneTextField(sub, { sub = it }, "Subfolder (optional)", Modifier.weight(1f), "Bedside/Albums", monospace = true)
+                Spacer(Modifier.width(8.dp))
+                IconTile(
+                    Icons.Rounded.FolderOpen, "Browse folders",
+                    { onBrowse(FolderPickRequest(base.id, cfg(), pw(), isNew, sub) { sub = it }) },
+                    size = 56.dp,
+                )
+            }
+        }
         val userField: @Composable (Modifier) -> Unit = { m -> NocturneTextField(user, { user = it }, "Username (empty = guest)", m) }
         val passField: @Composable (Modifier) -> Unit = { m ->
             NocturneTextField(
@@ -480,5 +498,85 @@ private fun AudiobooksTab(vm: MainViewModel, settings: AppSettings) {
             "Used to show your last played book on the Audiobookshelf screen. Playing happens in the Audiobookshelf app itself.",
             color = Nocturne.colors.textMuted, style = MaterialTheme.typography.bodySmall,
         )
+    }
+}
+
+// ------------------------------------------------------------------ folder picker
+
+/** What the folder picker needs to browse one share; [onPick] receives the chosen share-relative path ("" = whole share). */
+class FolderPickRequest(
+    val sourceId: String,
+    val cfg: SmbConfig,
+    val password: String?,
+    val isNew: Boolean,
+    val startPath: String,
+    val onPick: (String) -> Unit,
+)
+
+/** Browses the folders of a Samba share so the subfolder does not have to be typed. */
+@UnstableApi
+@Composable
+private fun FolderPickerDialog(vm: MainViewModel, req: FolderPickRequest, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    val c = Nocturne.colors
+    var path by remember { mutableStateOf(req.startPath.trim().trim('/', '\\').replace('\\', '/')) }
+    var listing by remember { mutableStateOf<FolderListing?>(null) }
+
+    androidx.compose.runtime.LaunchedEffect(path) {
+        listing = null
+        var r = vm.listSmbFolders(req.sourceId, req.cfg, req.password, req.isNew, path)
+        // A typed path that does not exist (yet): fall back to the share root instead of showing only an error.
+        if (r.error != null && path.isNotEmpty() && "not found" in r.error!!) { path = ""; return@LaunchedEffect }
+        listing = r
+    }
+
+    FullDialog(
+        onDismiss, "Choose folder", "\\\\${req.cfg.host.trim()}\\${req.cfg.share.trim('/', '\\')}", Icons.Rounded.FolderOpen,
+        maxWidth = 640.dp,
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconTile(
+                    Icons.Rounded.ArrowUpward, "Up one folder", { if (path.isNotEmpty()) path = path.substringBeforeLast('/', "") },
+                    size = 44.dp, tint = if (path.isEmpty()) c.textMuted else null,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "/" + path, color = c.textPrimary, style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                val l = listing
+                when {
+                    l == null -> Text("Loading...", color = c.textMuted, modifier = Modifier.padding(20.dp))
+                    l.error != null -> StatusLine(false, l.error, Modifier.padding(14.dp))
+                    l.folders.isEmpty() -> Text("No sub-folders here.", color = c.textMuted, modifier = Modifier.padding(20.dp))
+                    else -> androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(10.dp)) {
+                        items(l.folders.size, key = { l.folders[it] }) { i ->
+                            val name = l.folders[i]
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(ControlShape)
+                                    .clickable { path = if (path.isEmpty()) name else "$path/$name" }.padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Rounded.FolderOpen, null, tint = c.accent, modifier = Modifier.size(22.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Text(name, color = c.textPrimary, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
+            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SecondaryButton("Cancel", onDismiss, Modifier.weight(1f))
+                PrimaryButton(
+                    if (path.isEmpty()) "Use whole share" else "Use this folder", { onPick(path) }, Modifier.weight(2f),
+                    icon = Icons.Rounded.Check,
+                )
+            }
+        }
     }
 }

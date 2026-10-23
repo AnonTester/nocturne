@@ -17,6 +17,7 @@ import app.nocturne.data.SmbConfig
 import app.nocturne.data.SmbSource
 import app.nocturne.data.Source
 import app.nocturne.data.Track
+import app.nocturne.library.FolderListing
 import app.nocturne.library.SmbShareProvider
 import app.nocturne.library.TestResult
 import app.nocturne.playback.QueueScope
@@ -126,6 +127,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun testSmb(sourceId: String, cfg: SmbConfig, password: String?, isNew: Boolean = false): TestResult = withContext(Dispatchers.IO) {
         SmbShareProvider.test(cfg, password ?: sharedPassword(sourceId, cfg, isNew))
     }
+
+    /** Lists the sub-folders of [path] on a share for the folder picker (same password rules as "Test connection"). */
+    suspend fun listSmbFolders(sourceId: String, cfg: SmbConfig, password: String?, isNew: Boolean, path: String): FolderListing =
+        withContext(Dispatchers.IO) {
+            SmbShareProvider.listFolders(cfg, password ?: sharedPassword(sourceId, cfg, isNew), path)
+        }
 
     /** A new share on the same server and user as the main one may reuse the main share's saved password. */
     private fun sharedPassword(sourceId: String, cfg: SmbConfig, isNew: Boolean): String {

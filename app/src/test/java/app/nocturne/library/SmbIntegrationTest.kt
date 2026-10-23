@@ -24,6 +24,18 @@ class SmbIntegrationTest {
         assertTrue(r.sample.contains("Loose"))
     }
 
+    @Test fun folderPickerListsOnlyFolders() {
+        assumeNotNull(target)
+        val r = SmbShareProvider.listFolders(cfg(), "secret", "")
+        assertEquals(null, r.error)
+        assertTrue(r.folders.toString(), "Loose" in r.folders)
+    }
+
+    @Test fun folderPickerReportsMissingFolder() {
+        assumeNotNull(target)
+        assertTrue(SmbShareProvider.listFolders(cfg(), "secret", "no/such/folder").error != null)
+    }
+
     @Test fun wrongPasswordGivesLoginMessage() {
         assumeNotNull(target)
         val r = SmbShareProvider.test(cfg(), "nope")

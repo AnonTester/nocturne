@@ -2,6 +2,8 @@ package app.nocturne.library
 
 import app.nocturne.data.AppSettings
 import app.nocturne.data.SmbConfig
+import com.hierynomus.msfscc.FileAttributes
+import com.hierynomus.protocol.commons.EnumWithValue
 import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.auth.AuthenticationContext
 import com.hierynomus.smbj.connection.Connection
@@ -120,6 +122,34 @@ class SmbShareProvider(
             }
         }
 
+        /**
+         * Sub-folders of [path] (share-relative, "/" or "\\" separated, empty = share root), for the folder picker.
+         * One-shot connection like [test], so browsing never disturbs scanning or playback.
+         */
+        fun listFolders(cfg: SmbConfig, pass: String, path: String): FolderListing {
+            val c = SMBClient(clientConfig())
+            return try {
+                val (h, port) = parseHost(cfg.host)
+                c.connect(h, port).use { conn ->
+                    conn.authenticate(authContext(cfg, pass)).use { sess ->
+                        (sess.connectShare(cfg.share.trim().trim('/', '\\')) as? DiskShare ?: return FolderListing(error = "'${cfg.share}' is not a file share")).use { disk ->
+                            val dir = path.trim('/', '\\').replace('/', '\\')
+                            val names = disk.list(dir)
+                                .filter { EnumWithValue.EnumUtils.isSet(it.fileAttributes, FileAttributes.FILE_ATTRIBUTE_DIRECTORY) }
+                                .map { it.fileName }
+                                .filter { it != "." && it != ".." && !FileNameParser.isHidden(it) }
+                                .sortedWith(String.CASE_INSENSITIVE_ORDER)
+                            FolderListing(names)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                FolderListing(error = describe(e, cfg))
+            } finally {
+                runCatching { c.close() }
+            }
+        }
+
         fun describe(e: Throwable, cfg: SmbConfig): String {
             val root = generateSequence(e) { it.cause }.last()
             val text = (e.message ?: "") + " " + (root.message ?: "")
@@ -166,5 +196,8 @@ class SmbProviders(
     /** Forget a deleted share entirely. */
     fun remove(sourceId: String) { providers.remove(sourceId)?.close() }
 }
+
+/** Result of listing one folder for the picker: sub-folder names, or an error message. */
+data class FolderListing(val folders: List<String> = emptyList(), val error: String? = null)
 
 data class TestResult(val success: Boolean, val message: String, val sample: List<String> = emptyList())
