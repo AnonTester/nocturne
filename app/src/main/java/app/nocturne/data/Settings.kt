@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import app.nocturne.playback.GainModel
 import app.nocturne.ui.theme.ThemeId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -66,6 +67,12 @@ data class AppSettings(
     val fullscreen: Boolean = true,
     /** Seconds of inactivity before the dim screen starts by itself; 0 = never. */
     val autoDimSeconds: Int = 0,
+    /** Level every track to the same loudness (ReplayGain tags, or measured when untagged). */
+    val levelTracks: Boolean = false,
+    /** Added to every track's gain, in dB (the overall level of the levelled music). */
+    val levelOffsetDb: Float = 0f,
+    /** Measure loudness of untagged tracks in the background. */
+    val gainScan: Boolean = true,
     val mode: AppMode = AppMode.MUSIC,
     val lastTrackId: String = "",
     val smbLastScan: Long = 0,
@@ -103,6 +110,9 @@ class SettingsRepository(private val context: Context) {
         val keepAwake = booleanPreferencesKey("keep_awake")
         val fullscreen = booleanPreferencesKey("fullscreen")
         val autoDim = intPreferencesKey("auto_dim_seconds")
+        val levelTracks = booleanPreferencesKey("level_tracks")
+        val levelOffset = floatPreferencesKey("level_offset_db")
+        val gainScan = booleanPreferencesKey("gain_scan")
         val mode = stringPreferencesKey("mode")
         val lastTrack = stringPreferencesKey("last_track")
         val smbLastScan = longPreferencesKey("smb_last_scan")
@@ -132,6 +142,9 @@ class SettingsRepository(private val context: Context) {
             keepAwake = p[K.keepAwake] ?: d.keepAwake,
             fullscreen = p[K.fullscreen] ?: d.fullscreen,
             autoDimSeconds = p[K.autoDim] ?: d.autoDimSeconds,
+            levelTracks = p[K.levelTracks] ?: d.levelTracks,
+            levelOffsetDb = p[K.levelOffset] ?: d.levelOffsetDb,
+            gainScan = p[K.gainScan] ?: d.gainScan,
             mode = p[K.mode]?.let { runCatching { AppMode.valueOf(it) }.getOrNull() } ?: d.mode,
             lastTrackId = p[K.lastTrack] ?: "",
             smbLastScan = p[K.smbLastScan] ?: 0L,
@@ -167,6 +180,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun setKeepAwake(v: Boolean) = edit { it[K.keepAwake] = v }
     suspend fun setFullscreen(v: Boolean) = edit { it[K.fullscreen] = v }
     suspend fun setAutoDimSeconds(v: Int) = edit { it[K.autoDim] = v }
+    suspend fun setLevelTracks(v: Boolean) = edit { it[K.levelTracks] = v }
+    suspend fun setLevelOffsetDb(v: Float) = edit { it[K.levelOffset] = v.coerceIn(GainModel.MIN_OFFSET_DB, GainModel.MAX_OFFSET_DB) }
+    suspend fun setGainScan(v: Boolean) = edit { it[K.gainScan] = v }
     suspend fun setMode(v: AppMode) = edit { it[K.mode] = v.name }
     suspend fun setLastTrack(id: String) = edit { it[K.lastTrack] = id }
     suspend fun setSmbLastScan(at: Long) = edit { it[K.smbLastScan] = at }

@@ -19,6 +19,8 @@ data class PlayerState(
     /** Name of the folder being played, or null when playing the whole library. */
     val scopeName: String? = null,
     val error: String? = null,
+    /** Loudness levelling applied to the current track in dB; null when levelling is off. */
+    val levelDb: Float? = null,
 )
 
 sealed interface EngineEvent {

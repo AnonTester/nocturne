@@ -20,7 +20,7 @@ object Source {
 
 @Entity(
     tableName = "tracks",
-    indices = [Index("source"), Index("folderPath"), Index("metaDone")],
+    indices = [Index("source"), Index("folderPath"), Index("metaDone"), Index("gainSource")],
 )
 data class Track(
     /** Stable across rescans: "smb:<path>" (main share), "smb:<shareId>:<path>" (added share) or "local:<content uri>". */
@@ -42,7 +42,25 @@ data class Track(
     val hasCover: Boolean = false,
     /** True once tags/duration were read from the file (SMB tracks start filename-based). */
     val metaDone: Boolean = false,
+    /** dB to add to reach the ReplayGain 2 reference (-18 LUFS); null = not known yet. See [GainSource]. */
+    val gainDb: Float? = null,
+    /** Linear sample peak (1.0 = full scale), where known. */
+    val peak: Float? = null,
+    @ColumnInfo(defaultValue = "0") val gainSource: Int = GainSource.UNKNOWN,
 )
+
+/** Where a track's [Track.gainDb] came from. A changed file is re-imported with [UNKNOWN], so new tags always win. */
+object GainSource {
+    const val UNKNOWN = 0
+    const val TAG = 1
+    const val MEASURED = 2
+    /** Could not be read or decoded; not retried until the file changes or the user re-measures. */
+    const val FAILED = 3
+    /** Checked for tags, none found: waits for the (slower) measurement. Tag reading goes through the whole library first. */
+    const val UNTAGGED = 4
+}
+
+data class GainCount(val gainSource: Int, val count: Int)
 
 data class FolderRow(
     val folderPath: String,

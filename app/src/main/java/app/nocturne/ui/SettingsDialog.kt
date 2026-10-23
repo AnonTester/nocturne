@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Palette
@@ -65,6 +66,7 @@ import androidx.media3.common.util.UnstableApi
 import app.nocturne.MainViewModel
 import app.nocturne.data.AbsConfig
 import app.nocturne.data.AppSettings
+import app.nocturne.data.GainSource
 import app.nocturne.data.SmbConfig
 import app.nocturne.library.FolderListing
 import app.nocturne.data.SmbSource
@@ -81,6 +83,7 @@ enum class SettingsTab(val label: String, val icon: ImageVector) {
     THEME("Theme", Icons.Rounded.Palette),
     LAUNCHER("Launcher", Icons.Rounded.Home),
     LIBRARY("Library", Icons.Rounded.Storage),
+    AUDIO("Audio", Icons.Rounded.GraphicEq),
     AUDIOBOOKS("Audiobooks", Icons.Rounded.MenuBook),
 }
 
@@ -110,6 +113,7 @@ fun SettingsDialog(
                         SettingsTab.THEME -> ThemeTab(vm, settings)
                         SettingsTab.LAUNCHER -> LauncherTab(vm, settings, homeSignal, onOpenApps)
                         SettingsTab.LIBRARY -> LibraryTab(vm, settings, hasAudioPermission, onRequestPermissions, onPickFolder) { picker = it }
+                        SettingsTab.AUDIO -> AudioTab(vm, settings)
                         SettingsTab.AUDIOBOOKS -> AudiobooksTab(vm, settings)
                     }
                 }
@@ -455,6 +459,76 @@ private fun LibraryTab(
                 (lib.message?.let { "\n$it" } ?: ""),
         )
     }
+    }
+}
+
+// ------------------------------------------------------------------ audio (loudness levelling)
+
+@UnstableApi
+@Composable
+private fun AudioTab(vm: MainViewModel, settings: AppSettings) {
+    val c = Nocturne.colors
+    val counts by vm.gainCounts.collectAsState()
+    fun n(source: Int) = counts[source] ?: 0
+    val total = counts.values.sum()
+    val known = n(GainSource.TAG) + n(GainSource.MEASURED)
+    val pending = n(GainSource.UNKNOWN) + n(GainSource.UNTAGGED)
+    val toMeasure = n(GainSource.UNTAGGED)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionLabel("Loudness levelling")
+        ToggleRow(
+            "Level track loudness", "Plays every track at the same loudness, from ReplayGain tags or measured values.",
+            settings.levelTracks,
+        ) { vm.setLevelTracks(it) }
+        Row(
+            Modifier.fillMaxWidth().clip(ControlShape).background(c.surfaceHigh).border(1.dp, c.border, ControlShape).padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Level offset", color = c.textPrimary, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "The volume slider sets the loudness after levelling. Raise the offset if levelled music is quieter than before.",
+                    color = c.textSecondary, style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            SecondaryButton("-1", { vm.setLevelOffsetDb(settings.levelOffsetDb - 1f) }, Modifier.width(64.dp))
+            Text(
+                "%+.0f dB".format(settings.levelOffsetDb), color = c.accent, style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.width(72.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            SecondaryButton("+1", { vm.setLevelOffsetDb(settings.levelOffsetDb + 1f) }, Modifier.width(64.dp))
+        }
+        var matchNote by remember { mutableStateOf<String?>(null) }
+        val scope = rememberCoroutineScope()
+        SecondaryButton("Match typical loudness", {
+            scope.launch {
+                matchNote = if (vm.matchOffsetToLibrary()) "Offset set so a typical track keeps the loudness it had without levelling."
+                else "Not enough tracks measured yet. Try again once the scan has made some progress."
+            }
+        }, Modifier.fillMaxWidth(), icon = Icons.Rounded.GraphicEq)
+        matchNote?.let { Text(it, color = c.textSecondary, style = MaterialTheme.typography.bodySmall) }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
+        SectionLabel("Loudness scan")
+        ToggleRow(
+            "Measure loudness in background",
+            "Reads ReplayGain tags, and measures the middle of songs without them. One track at a time, only while nothing is loading.",
+            settings.gainScan,
+        ) { vm.setGainScan(it) }
+        StatusLine(
+            null,
+            "Loudness known for ${"%,d".format(known)} of ${"%,d".format(total)} tracks" +
+                "\nFrom tags: ${"%,d".format(n(GainSource.TAG))} \u2022 Measured: ${"%,d".format(n(GainSource.MEASURED))}" +
+                " \u2022 Failed: ${"%,d".format(n(GainSource.FAILED))}" +
+                if (pending > 0) "\n${"%,d".format(pending)} left" + (if (toMeasure > 0) ", ${"%,d".format(toMeasure)} without a tag to measure" else "") +
+                    (if (settings.gainScan) " (scanning in the background)" else " (scan is off)") else "",
+        )
+        SecondaryButton("Re-measure all", { vm.remeasureAll() }, Modifier.fillMaxWidth(), icon = Icons.Rounded.Refresh)
+        Text(
+            "Tracks with a ReplayGain tag use the tag. Tags added to a file later replace a measured value when the file is rescanned. " +
+                "Tracks that are not known yet play at the library's median level until they are.",
+            color = c.textMuted, style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

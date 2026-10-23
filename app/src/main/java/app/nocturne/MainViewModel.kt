@@ -13,6 +13,8 @@ import app.nocturne.data.AbsConfig
 import app.nocturne.data.AppMode
 import app.nocturne.data.AppSettings
 import app.nocturne.data.FolderRow
+import app.nocturne.data.GainSource
+import app.nocturne.playback.GainModel
 import app.nocturne.data.SmbConfig
 import app.nocturne.data.SmbSource
 import app.nocturne.data.Source
@@ -206,6 +208,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             app.library.scanLocal()
         }
     }
+
+    // ------------------------------------------------------------ loudness levelling
+
+    /** Number of tracks per [app.nocturne.data.GainSource] value. */
+    val gainCounts: StateFlow<Map<Int, Int>> =
+        dao.gainCounts().map { rows -> rows.associate { it.gainSource to it.count } }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    fun setLevelTracks(v: Boolean) = viewModelScope.launch { app.settings.setLevelTracks(v) }
+    fun setLevelOffsetDb(v: Float) = viewModelScope.launch { app.settings.setLevelOffsetDb(v) }
+    /**
+     * Sets the level offset so that a typical track (the library's median gain) keeps the loudness it had without levelling.
+     * Returns false when too few tracks are known yet to say what typical is.
+     */
+    suspend fun matchOffsetToLibrary(): Boolean {
+        val known = gainCounts.value.let { (it[GainSource.TAG] ?: 0) + (it[GainSource.MEASURED] ?: 0) }
+        if (known < GainModel.MIN_KNOWN_FOR_MEDIAN) return false
+        val median = withContext(Dispatchers.IO) { dao.medianGain() } ?: return false
+        app.settings.setLevelOffsetDb(Math.round(-median).toFloat())
+        return true
+    }
+
+    fun setGainScan(v: Boolean) = viewModelScope.launch { app.settings.setGainScan(v) }
+
+    /** Forgets measured and failed loudness values so the background scan does them again. */
+    fun remeasureAll() = viewModelScope.launch(Dispatchers.IO) { dao.resetMeasuredGain() }
 
     // ------------------------------------------------------------ audiobookshelf
 

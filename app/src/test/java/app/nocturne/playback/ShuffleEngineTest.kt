@@ -87,4 +87,39 @@ class ShuffleEngineTest {
         assertFalse(engine.hasPrevious())
         assertTrue(engine.previous(setOf("a", "b")) == null)
     }
+
+    @Test fun peekRecordsNoHistory() {
+        val e = ShuffleEngine(Random(7))
+        e.recordPlay("t1")
+        val peeked = e.peekNext(ids, "t1")!!
+        e.peekNext(ids, "t1")
+        assertFalse(e.hasPrevious()) // nothing but t1 in the history
+        assertEquals(peeked, e.next(ids, "t1", preferred = peeked))
+        assertTrue(e.hasPrevious())
+    }
+
+    @Test fun preferredPickIsPlayedAndRecordedOnce() {
+        val e = ShuffleEngine(Random(3))
+        e.recordPlay("t1")
+        assertEquals("t50", e.next(ids, "t1", preferred = "t50"))
+        assertTrue(e.hasPrevious())
+        assertEquals("t1", e.previous(ids.toSet()))
+        assertNull(e.previous(ids.toSet()))
+    }
+
+    @Test fun preferredIsIgnoredWhenNotInTheQueueAnymore() {
+        val e = ShuffleEngine(Random(3))
+        e.recordPlay("t1")
+        val picked = e.next(ids, "t1", preferred = "gone")!!
+        assertNotEquals("gone", picked)
+    }
+
+    @Test fun peekFollowsForwardHistoryAfterGoingBack() {
+        val e = ShuffleEngine(Random(5))
+        e.recordPlay("t1"); e.next(ids, "t1")
+        val second = e.next(ids, "t1")!!
+        e.previous(ids.toSet())
+        assertEquals(second, e.peekNext(ids, "t1"))
+        assertEquals(second, e.next(ids, "t1", preferred = second))
+    }
 }

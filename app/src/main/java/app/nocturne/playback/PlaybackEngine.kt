@@ -12,6 +12,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
+import app.nocturne.data.GainSource
 import app.nocturne.data.RepeatMode
 import app.nocturne.data.SettingsRepository
 import app.nocturne.data.Track
@@ -73,6 +74,18 @@ class PlaybackEngine(
     private var loadedTrackId: String? = null
     private var fadeJob: Job? = null
 
+    // Loudness levelling (see GainModel). The scanner fills in each track's gain in the background.
+    /** Set by the app: asks the background scanner to do these tracks first. */
+    var onGainWanted: (List<String>) -> Unit = {}
+    private var levelOn = false
+    private var levelOffsetDb = 0f
+    private var fallbackDb = GainModel.DEFAULT_FALLBACK_DB
+    private var knownGains = 0
+    private var medianAtKnown = 0
+    private var rampJob: Job? = null
+    /** The track the engine has already decided to play next (shuffle), so it can be measured in time. */
+    private var upcomingId: String? = null
+
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
@@ -103,12 +116,35 @@ class PlaybackEngine(
             _state.map { it.track?.id }.distinctUntilChanged()
                 .flatMapLatest { id -> if (id == null) emptyFlow() else dao.observeById(id) }
                 .collect { fresh ->
-                    if (fresh != null) _state.update { s -> if (s.track?.id == fresh.id) s.copy(track = fresh) else s }
+                    if (fresh != null) {
+                        val gainChanged = _state.value.track?.takeIf { it.id == fresh.id }?.gainDb != fresh.gainDb
+                        _state.update { s -> if (s.track?.id == fresh.id) s.copy(track = fresh) else s }
+                        // The scanner just found this track's loudness while it plays: move to it smoothly.
+                        if (gainChanged && levelOn) rampGain()
+                    }
                 }
         }
         scope.launch {
             // Keep the queue in step with library changes (scans, enrichment-free: only count changes).
             dao.countFlow().debounce(800).collect { refreshQueue() }
+        }
+        scope.launch {
+            settings.flow.map { it.levelTracks to it.levelOffsetDb }.distinctUntilChanged().collect { (on, off) ->
+                levelOn = on; levelOffsetDb = off
+                applyGain()
+            }
+        }
+        scope.launch {
+            // The assumed gain of a track without a value is the library median; refresh it as the scan makes progress.
+            dao.gainCounts().collect { rows ->
+                val known = rows.filter { it.gainSource == GainSource.TAG || it.gainSource == GainSource.MEASURED }.sumOf { it.count }
+                knownGains = known
+                if (known >= GainModel.MIN_KNOWN_FOR_MEDIAN && (medianAtKnown == 0 || known - medianAtKnown >= MEDIAN_REFRESH_EVERY)) {
+                    medianAtKnown = known
+                    fallbackDb = GainModel.fallbackDb(dao.medianGain(), known)
+                    applyGain()
+                }
+            }
         }
         scope.launch {
             // Ticking "include in main library" changes what the whole-library queue contains.
@@ -137,6 +173,7 @@ class PlaybackEngine(
     }
 
     private suspend fun refreshQueue() {
+        upcomingId = null
         queueIds = when (val q = queueScope) {
             QueueScope.All -> dao.allIds(settings.flow.first().mergedSources)
             is QueueScope.Folder -> dao.idsInFolder(q.folderPath, q.source)
@@ -269,7 +306,7 @@ class PlaybackEngine(
         val ids = queueIds
         if (ids.isEmpty()) return null
         val st = _state.value
-        if (st.shuffle) return shuffle.next(ids, st.track?.id)
+        if (st.shuffle) return shuffle.next(ids, st.track?.id, upcomingId)
         val i = ids.indexOf(st.track?.id)
         return when {
             i in 0 until ids.lastIndex -> ids[i + 1]
@@ -326,6 +363,8 @@ class PlaybackEngine(
         _state.update {
             it.copy(track = track, durationMs = track.durationMs, status = PlayStatus.LOADING, error = null)
         }
+        applyGain()
+        planGain(track)
         val item = MediaItem.Builder()
             .setMediaId(track.id)
             .setUri(track.uri)
@@ -337,6 +376,25 @@ class PlaybackEngine(
         player.prepare()
         player.playWhenReady = autoPlay
         scope.launch { settings.setLastTrack(track.id) }
+    }
+
+    /** Tells the loudness scanner what is playing and what is likely to play next, so those are measured first. */
+    private fun planGain(track: Track) {
+        val ids = ArrayList<String>()
+        ids.add(track.id)
+        if (_state.value.shuffle) {
+            upcomingId = shuffle.peekNext(queueIds, track.id)
+            upcomingId?.let { ids.add(it) }
+        } else {
+            upcomingId = null
+            val i = queueIds.indexOf(track.id)
+            if (i >= 0) {
+                val small = queueScope !is QueueScope.All && queueIds.size <= LOOKAHEAD_FOLDER_MAX
+                val n = if (small) LOOKAHEAD_FOLDER_MAX else LOOKAHEAD_SEQUENTIAL
+                ids.addAll(queueIds.subList(i + 1, minOf(queueIds.size, i + 1 + n)))
+            }
+        }
+        onGainWanted(ids)
     }
 
     private fun syncStatus() {
@@ -363,9 +421,39 @@ class PlaybackEngine(
 
     // ---------------------------------------------------------------- volume
 
-    private fun applyGain() {
+    private fun currentLevelDb(): Float? =
+        if (levelOn) GainModel.levelDb(_state.value.track?.gainDb, fallbackDb, levelOffsetDb) else null
+
+    private fun targetVolume(): Float {
         val s = _state.value
-        player.volume = VolumeCurve.gain(s.volume, s.whisper, s.muted)
+        return GainModel.volume(VolumeCurve.gain(s.volume, s.whisper, s.muted), currentLevelDb())
+    }
+
+    private fun publishLevel() {
+        val lvl = currentLevelDb()
+        _state.update { if (it.levelDb != lvl) it.copy(levelDb = lvl) else it }
+    }
+
+    private fun applyGain() {
+        rampJob?.cancel()
+        player.volume = targetVolume()
+        publishLevel()
+    }
+
+    /** Like [applyGain] but glides to the new value over about a second (used when a track's loudness arrives mid-song). */
+    private fun rampGain() {
+        rampJob?.cancel()
+        publishLevel()
+        val target = targetVolume()
+        val start = player.volume
+        if (kotlin.math.abs(target - start) < 0.002f || fadeJob?.isActive == true) { if (fadeJob?.isActive != true) player.volume = target; return }
+        rampJob = scope.launch {
+            val steps = 20
+            for (i in 1..steps) {
+                delay(RAMP_MS / steps)
+                player.volume = start + (target - start) * i / steps
+            }
+        }
     }
 
     fun setVolume(v: Float) {
@@ -388,6 +476,7 @@ class PlaybackEngine(
     }
 
     fun setShuffle(on: Boolean) {
+        upcomingId = null
         _state.update { it.copy(shuffle = on) }
         scope.launch { settings.setShuffle(on) }
     }
@@ -426,6 +515,7 @@ class PlaybackEngine(
 
     /** Smooth bedside fade (30 steps), then pause and restore the user's volume. */
     fun fadeOutAndPause(durationMs: Long = FADE_MS) {
+        rampJob?.cancel()
         cancelFade()
         fadeJob = scope.launch {
             val start = player.volume
@@ -456,6 +546,10 @@ class PlaybackEngine(
 
     companion object {
         const val RESTART_THRESHOLD_MS = 3000L
+        private const val RAMP_MS = 1000L
+        private const val MEDIAN_REFRESH_EVERY = 50
+        private const val LOOKAHEAD_SEQUENTIAL = 3
+        private const val LOOKAHEAD_FOLDER_MAX = 200
         const val FADE_MS = 3500L
         const val MAX_RETRIES = 4
         const val RETRY_BASE_MS = 1500L

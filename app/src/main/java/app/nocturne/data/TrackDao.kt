@@ -86,4 +86,31 @@ interface TrackDao {
 
     @Query("UPDATE tracks SET metaDone = 1 WHERE id = :id")
     suspend fun markMetaDone(id: String)
+
+    // ---------------------------------------------------------------- loudness
+
+    /** Tracks in loudness state [state] (see GainSource): main share first, then other shares, device last; folder order within. */
+    @Query(
+        """SELECT * FROM tracks WHERE gainSource = :state
+           ORDER BY CASE source WHEN 'samba' THEN 0 WHEN 'local' THEN 2 ELSE 1 END, source, folderPath COLLATE NOCASE, filename COLLATE NOCASE
+           LIMIT :limit""",
+    )
+    suspend fun pendingGain(state: Int, limit: Int): List<Track>
+
+    @Query("UPDATE tracks SET gainDb = :gainDb, peak = :peak, gainSource = :gainSource WHERE id = :id")
+    suspend fun setGain(id: String, gainDb: Float?, peak: Float?, gainSource: Int)
+
+    @Query("SELECT gainSource, COUNT(*) AS count FROM tracks GROUP BY gainSource")
+    fun gainCounts(): Flow<List<GainCount>>
+
+    /** Median of all known gains (tags and measured): what a track without a value is assumed to have. */
+    @Query(
+        """SELECT gainDb FROM tracks WHERE gainSource IN (1, 2) AND gainDb IS NOT NULL ORDER BY gainDb
+           LIMIT 1 OFFSET (SELECT COUNT(*) FROM tracks WHERE gainSource IN (1, 2) AND gainDb IS NOT NULL) / 2""",
+    )
+    suspend fun medianGain(): Float?
+
+    /** "Re-measure all": forget measured and failed values (tag values stay, tags are re-read when the file changes). */
+    @Query("UPDATE tracks SET gainDb = NULL, peak = NULL, gainSource = 0 WHERE gainSource IN (2, 3, 4)")
+    suspend fun resetMeasuredGain()
 }

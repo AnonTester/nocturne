@@ -541,7 +541,7 @@ private fun StatusStrip(p: PlayerState, trackCount: Int, vm: MainViewModel) {
         Spacer(Modifier.width(8.dp))
         val queue = if (p.scopeName != null) "${p.scopeName} \u2022 ${p.queueSize} tracks" else "${"%,d".format(trackCount)} tracks"
         Text(
-            (if (p.shuffle) "Shuffle" else "Sequential") + " \u2022 $queue",
+            (if (p.shuffle) "Shuffle" else "Sequential") + " \u2022 $queue" + (p.levelDb?.let { " \u2022 Level %+.1f dB".format(it) } ?: ""),
             color = c.textSecondary, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )

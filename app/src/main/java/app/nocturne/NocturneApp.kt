@@ -7,8 +7,10 @@ import app.nocturne.data.NocturneDatabase
 import app.nocturne.data.SecretStore
 import app.nocturne.data.SettingsRepository
 import app.nocturne.library.CoverLoader
+import app.nocturne.library.GainScanner
 import app.nocturne.library.LibraryManager
 import app.nocturne.library.SmbProviders
+import app.nocturne.playback.PlayStatus
 import app.nocturne.playback.PlaybackEngine
 import java.security.Security
 import kotlinx.coroutines.CoroutineScope
@@ -32,6 +34,9 @@ class NocturneApp : Application() {
     lateinit var smb: SmbProviders; private set
     lateinit var smbPlayback: SmbProviders; private set
     lateinit var smbEnrich: SmbProviders; private set
+    /** Fourth set: loudness analysis, kept apart from scanning, tag reading and playback. */
+    lateinit var smbGain: SmbProviders; private set
+    lateinit var gainScanner: GainScanner; private set
     lateinit var library: LibraryManager; private set
     lateinit var engine: PlaybackEngine; private set
     lateinit var covers: CoverLoader; private set
@@ -54,11 +59,15 @@ class NocturneApp : Application() {
         smb = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
         smbPlayback = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
         smbEnrich = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
+        smbGain = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
         library = LibraryManager(this, db.tracks(), settings, smb, smbEnrich, ioScope)
         covers = CoverLoader(this, smbPlayback)
         abs = AbsRepository(settings, secrets)
         engine = PlaybackEngine(this, db.tracks(), settings, smbPlayback, appScope)
+        gainScanner = GainScanner(this, db.tracks(), settings, smbGain, ioScope) { engine.state.value.status == PlayStatus.LOADING }
+        engine.onGainWanted = gainScanner::request
         library.start()
+        gainScanner.start()
     }
 
     /** smbj needs MD4/HMAC/AES-CMAC etc. that Android's trimmed-down "BC" provider no longer ships. */

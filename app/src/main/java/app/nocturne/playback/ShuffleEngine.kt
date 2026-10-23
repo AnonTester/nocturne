@@ -40,10 +40,33 @@ class ShuffleEngine(private val random: Random = Random.Default) {
         return null
     }
 
-    /** Next id: forward through history if we stepped back, otherwise a random pick that avoids recent plays. */
-    fun next(ids: List<String>, currentId: String?): String? {
+    /**
+     * A pick for [next] without recording it in the history (it does draw from the random generator, so pass the result back as `preferred`). Lets the engine decide the next
+     * track one step early, e.g. to measure its loudness before it starts.
+     */
+    fun peekNext(ids: List<String>, currentId: String?): String? {
+        if (ids.isEmpty()) return null
+        if (ids.size == 1) return ids[0]
+        if (pointer >= 0 && pointer < history.size - 1) {
+            val available = ids.toHashSet()
+            for (i in pointer + 1 until history.size) if (history[i] in available) return history[i]
+        }
+        return choose(ids, currentId)
+    }
+
+    /**
+     * Next id: forward through history if we stepped back, otherwise a random pick that avoids recent plays.
+     * [preferred] (from [peekNext]) is honoured when it is still in [ids].
+     */
+    fun next(ids: List<String>, currentId: String?, preferred: String? = null): String? {
         if (ids.isEmpty()) return null
         if (ids.size == 1) return ids[0].also { recordPlay(it) }
+
+        if (preferred != null && preferred != currentId && preferred in ids) {
+            val forward = (pointer + 1 until history.size).firstOrNull { history[it] == preferred }
+            if (forward != null) pointer = forward else recordPlay(preferred)
+            return preferred
+        }
 
         if (pointer >= 0 && pointer < history.size - 1) {
             val available = ids.toHashSet()
@@ -54,6 +77,12 @@ class ShuffleEngine(private val random: Random = Random.Default) {
             }
         }
 
+        val chosen = choose(ids, currentId)
+        recordPlay(chosen)
+        return chosen
+    }
+
+    private fun choose(ids: List<String>, currentId: String?): String {
         val window = minOf((ids.size * 0.6).toInt(), MAX_EXCLUSION)
         val recent = HashSet<String>(window + 1)
         for (i in maxOf(0, history.size - window) until history.size) recent.add(history[i])
@@ -62,10 +91,7 @@ class ShuffleEngine(private val random: Random = Random.Default) {
         var candidates = ids.filter { it !in recent }
         if (candidates.isEmpty()) candidates = ids.filter { it != currentId }
         if (candidates.isEmpty()) candidates = ids
-
-        val chosen = candidates[random.nextInt(candidates.size)]
-        recordPlay(chosen)
-        return chosen
+        return candidates[random.nextInt(candidates.size)]
     }
 
     companion object {
