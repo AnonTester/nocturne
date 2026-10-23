@@ -14,7 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** Now-playing artwork: embedded picture, cached on disk after the first read. Null means "no cover". */
-class CoverLoader(private val context: Context, private val smb: SmbShareProvider) {
+class CoverLoader(private val context: Context, private val smb: SmbProviders) {
     private val memory = LruCache<String, Bitmap>(6)
     private val dir = File(context.cacheDir, "covers").apply { mkdirs() }
 
@@ -46,8 +46,8 @@ class CoverLoader(private val context: Context, private val smb: SmbShareProvide
         val r = MediaMetadataRetriever()
         var src: SmbMediaDataSource? = null
         return try {
-            if (track.source == Source.SAMBA) {
-                src = SmbMediaDataSource(smb, SmbUri.sharePath(Uri.parse(track.uri)))
+            if (Source.isSmb(track.source)) {
+                src = SmbMediaDataSource(smb.get(track.source), SmbUri.sharePath(Uri.parse(track.uri)))
                 r.setDataSource(src)
             } else {
                 r.setDataSource(context, Uri.parse(track.uri))

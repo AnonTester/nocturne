@@ -1,7 +1,6 @@
 package app.nocturne.library
 
 import app.nocturne.data.SmbConfig
-import app.nocturne.data.Source
 import app.nocturne.data.Track
 import com.hierynomus.msfscc.FileAttributes
 import com.hierynomus.protocol.commons.EnumWithValue
@@ -9,9 +8,10 @@ import com.hierynomus.protocol.commons.EnumWithValue
 /** Result of a scan. [unreadableFolders] > 0 means the track list may be incomplete and must not be used to delete anything. */
 class SmbScanResult(val tracks: List<Track>, val unreadableFolders: Int)
 
-/** Recursive audio scan of the configured share/subfolder. First pass is filename-based; tags come later. */
-class SmbScanner(private val provider: SmbShareProvider) {
-    fun scan(cfg: SmbConfig, isActive: () -> Boolean, onProgress: (Int) -> Unit): SmbScanResult {
+/** Recursive audio scan of a share/subfolder. First pass is filename-based; tags come later. */
+class SmbScanner {
+    /** [sourceId] names the share the tracks belong to (see [Source]); [provider] is its scan connection. */
+    fun scan(provider: SmbShareProvider, sourceId: String, cfg: SmbConfig, isActive: () -> Boolean, onProgress: (Int) -> Unit): SmbScanResult {
         var unreadable = 0
         val root = cfg.subfolder.trim('/', '\\').replace('\\', '/')
         val out = ArrayList<Track>()
@@ -20,7 +20,7 @@ class SmbScanner(private val provider: SmbShareProvider) {
 
         while (pending.isNotEmpty() && isActive()) {
             val dir = pending.removeLast()
-            val entries = when (val r = list(dir)) {
+            val entries = when (val r = list(provider, dir)) {
                 is Listing.Ok -> r.entries
                 Listing.Gone -> continue // folder disappeared while scanning: nothing to index
                 is Listing.Failed -> {
@@ -38,7 +38,7 @@ class SmbScanner(private val provider: SmbShareProvider) {
                 if (isDir) {
                     pending.add(rel)
                 } else if (FileNameParser.isAudio(name)) {
-                    out.add(toTrack(cfg, dir, rel, name, entry.endOfFile, entry.lastWriteTime.toEpochMillis()))
+                    out.add(toTrack(sourceId, cfg, dir, rel, name, entry.endOfFile, entry.lastWriteTime.toEpochMillis()))
                     if (out.size % 100 == 0) onProgress(out.size)
                 }
             }
@@ -54,7 +54,7 @@ class SmbScanner(private val provider: SmbShareProvider) {
     }
 
     /** Lists one folder, reconnecting and retrying on transient errors (timeouts, dropped connections). */
-    private fun list(dir: String): Listing {
+    private fun list(provider: SmbShareProvider, dir: String): Listing {
         var last: Exception? = null
         for (attempt in 0 until LIST_ATTEMPTS) {
             try {
@@ -74,21 +74,21 @@ class SmbScanner(private val provider: SmbShareProvider) {
         const val LIST_ATTEMPTS = 3
     }
 
-    private fun toTrack(cfg: SmbConfig, dir: String, rel: String, name: String, size: Long, mtime: Long): Track {
+    private fun toTrack(sourceId: String, cfg: SmbConfig, dir: String, rel: String, name: String, size: Long, mtime: Long): Track {
         val parsed = FileNameParser.parse(name, FileNameParser.artistFolderOf(rel))
         val folder = FileNameParser.folderOf(rel)
         return Track(
-            id = "smb:$rel",
+            id = SmbUri.trackId(sourceId, rel),
             title = parsed.title,
             artist = parsed.artist,
             album = if (folder != FileNameParser.ROOT_FOLDER) folder else "Samba Library",
             folder = folder,
             folderPath = dir,
             filename = name,
-            uri = SmbUri.build(cfg.host.trim(), cfg.share.trim('/', '\\'), rel).toString(),
+            uri = SmbUri.build(cfg.host.trim(), cfg.share.trim('/', '\\'), rel, sourceId).toString(),
             size = size,
             mtime = mtime,
-            source = Source.SAMBA,
+            source = sourceId,
         )
     }
 }

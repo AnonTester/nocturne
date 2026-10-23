@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- Several Samba shares: add, name, rescan and remove shares in Settings > Library. Each can be merged into the main library or kept separate (e.g. "Review", "Comedy").
+- Library and Albums get source chips; with a source selected, *Shuffle <name>* plays just that source. Randomize and the default lists only use merged sources.
+- Device music can be left out of the main library as well.
+
 ## 1.0.1
 - Standby clock moves to a new spot every minute, fading out at the end of the old minute and in at the start of the new one (slower fade, always fully on screen).
 - Removed the "Standby" hint text from the standby screen.

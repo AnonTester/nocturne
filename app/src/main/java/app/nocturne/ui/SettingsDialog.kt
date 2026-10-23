@@ -65,6 +65,8 @@ import app.nocturne.MainViewModel
 import app.nocturne.data.AbsConfig
 import app.nocturne.data.AppSettings
 import app.nocturne.data.SmbConfig
+import app.nocturne.data.SmbSource
+import app.nocturne.data.Source
 import app.nocturne.library.TestResult
 import app.nocturne.launcher.InstalledApps
 import app.nocturne.ui.theme.Nocturne
@@ -281,6 +283,8 @@ private fun LauncherTab(vm: MainViewModel, settings: AppSettings, homeSignal: In
 
 // ------------------------------------------------------------------ library (samba + device)
 
+private const val ADD_SHARE = "+add"
+
 @UnstableApi
 @Composable
 private fun LibraryTab(
@@ -294,26 +298,63 @@ private fun LibraryTab(
     val scope = rememberCoroutineScope()
     val lib by vm.libraryStatus.collectAsState()
     val count by vm.trackCount.collectAsState()
-    val saved = settings.smb
+    val counts by vm.sourceCounts.collectAsState()
+    val sources = settings.smbSources
+    var selectedId by remember { mutableStateOf(Source.SAMBA) }
+    // While adding a share, [draftId] is its new id and the form starts from the main share's server/user/domain.
+    var draftId by remember { mutableStateOf<String?>(null) }
+    val isNew = draftId != null
+    val base: SmbSource = remember(draftId, selectedId, sources) {
+        draftId?.let { id ->
+            SmbSource(id, "", settings.smb.copy(subfolder = "", autoRescanMinutes = 30), includeInMain = false)
+        } ?: sources.firstOrNull { it.id == selectedId } ?: sources.first()
+    }
+    val saved = base.config
 
-    var host by remember(saved) { mutableStateOf(saved.host) }
-    var share by remember(saved) { mutableStateOf(saved.share) }
-    var sub by remember(saved) { mutableStateOf(saved.subfolder) }
-    var user by remember(saved) { mutableStateOf(saved.username) }
-    var domain by remember(saved) { mutableStateOf(saved.domain) }
-    var rescan by remember(saved) { mutableStateOf(saved.autoRescanMinutes.toString()) }
-    var password by remember { mutableStateOf("") }
-    var passwordEdited by remember { mutableStateOf(false) }
-    var test by remember { mutableStateOf<TestResult?>(null) }
+    var name by remember(base.id) { mutableStateOf(base.name.takeIf { !isNew } ?: "") }
+    var merge by remember(base.id, base.includeInMain) { mutableStateOf(base.includeInMain) }
+    var host by remember(base.id, saved) { mutableStateOf(saved.host) }
+    var share by remember(base.id, saved) { mutableStateOf(saved.share) }
+    var sub by remember(base.id, saved) { mutableStateOf(saved.subfolder) }
+    var user by remember(base.id, saved) { mutableStateOf(saved.username) }
+    var domain by remember(base.id, saved) { mutableStateOf(saved.domain) }
+    var rescan by remember(base.id, saved) { mutableStateOf(saved.autoRescanMinutes.toString()) }
+    var password by remember(base.id) { mutableStateOf("") }
+    var passwordEdited by remember(base.id) { mutableStateOf(false) }
+    var test by remember(base.id) { mutableStateOf<TestResult?>(null) }
     var testing by remember { mutableStateOf(false) }
+    var confirmRemove by remember(base.id) { mutableStateOf(false) }
+
+    // Once a newly added share shows up in the settings, switch from the draft form to the saved share.
+    androidx.compose.runtime.LaunchedEffect(sources, draftId) {
+        draftId?.let { id -> if (sources.any { it.id == id }) { selectedId = id; draftId = null } }
+    }
 
     fun cfg() = SmbConfig(host, share, sub, user, domain, rescan.toIntOrNull() ?: 30)
     fun pw() = if (passwordEdited) password else null
+    fun displayName() = name.trim().ifEmpty { sub.trim('/', '\\').substringAfterLast('/').substringAfterLast('\\').ifEmpty { share.trim() }.ifEmpty { "Share" } }
+    fun current() = SmbSource(base.id, if (base.isMain) AppSettings.MAIN_NAME else displayName(), cfg(), merge || base.isMain, base.lastScan)
 
     BoxWithConstraints {
     val wide = maxWidth >= 560.dp
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionLabel("Samba / network share")
+        SectionLabel("Samba / network shares")
+        Text(
+            "Added shares are kept out of Randomize and the default Library view unless 'Include in main library' is on.",
+            color = c.textSecondary, style = MaterialTheme.typography.bodySmall,
+        )
+        ChipRow(
+            sources.map { it.id to it.name } + (ADD_SHARE to "+ Add share"),
+            draftId?.let { ADD_SHARE } ?: base.id,
+        ) { id ->
+            if (id == ADD_SHARE) draftId = Source.newShareId() else { draftId = null; selectedId = id }
+        }
+        if (!base.isMain) {
+            NocturneTextField(name, { name = it }, "Name", Modifier.fillMaxWidth(), "Review, Comedy ...")
+            ToggleRow(
+                "Include in main library", "On: its tracks join Randomize and the Library list. Off: only playable on their own.", merge,
+            ) { merge = it; if (!isNew) vm.updateShareFlags(current()) }
+        }
         val hostField: @Composable (Modifier) -> Unit = { m -> NocturneTextField(host, { host = it }, "Server (IP or name[:port])", m, "nas.local or nas.local:445", monospace = true) }
         val shareField: @Composable (Modifier) -> Unit = { m -> NocturneTextField(share, { share = it }, "Share name", m, "music", monospace = true) }
         val subField: @Composable (Modifier) -> Unit = { m -> NocturneTextField(sub, { sub = it }, "Subfolder (optional)", m, "Bedside/Albums", monospace = true) }
@@ -321,7 +362,13 @@ private fun LibraryTab(
         val passField: @Composable (Modifier) -> Unit = { m ->
             NocturneTextField(
                 password, { password = it; passwordEdited = true }, "Password", m,
-                placeholder = if (vm.hasSmbPassword() && !passwordEdited) "saved" else "", password = true,
+                placeholder = when {
+                    passwordEdited -> ""
+                    vm.hasSmbPassword(base.id) -> "saved"
+                    isNew && vm.reusesMainPassword(cfg()) -> "same as main share"
+                    else -> ""
+                },
+                password = true,
             )
         }
         val domainField: @Composable (Modifier) -> Unit = { m -> NocturneTextField(domain, { domain = it }, "Workgroup / domain", m) }
@@ -343,11 +390,16 @@ private fun LibraryTab(
         ButtonFlow {
             if (wide) rescanField(flowWeight())
             SecondaryButton(if (testing) "Testing..." else "Test connection", {
-                scope.launch { testing = true; test = vm.testSmb(cfg(), pw()); testing = false }
+                scope.launch { testing = true; test = vm.testSmb(base.id, cfg(), pw(), isNew); testing = false }
             }, flowWeight(), icon = Icons.Rounded.Wifi, enabled = !testing && host.isNotBlank() && share.isNotBlank())
             PrimaryButton(if (lib.scanning) "Scanning..." else "Save & scan share", {
-                vm.saveSmbAndScan(cfg(), pw()); passwordEdited = false
+                vm.saveSmbAndScan(current(), pw(), isNew); passwordEdited = false
             }, flowWeight(), icon = Icons.Rounded.Dns, enabled = !lib.scanning && host.isNotBlank() && share.isNotBlank())
+            if (!base.isMain && !isNew) {
+                SecondaryButton(if (confirmRemove) "Tap again to remove" else "Remove share", {
+                    if (confirmRemove) { vm.removeShare(base.id); selectedId = Source.SAMBA } else confirmRemove = true
+                }, flowWeight(), icon = Icons.Rounded.Close)
+            }
         }
         test?.let { r ->
             StatusLine(r.success, r.message + if (r.sample.isNotEmpty()) "\n" + r.sample.joinToString(", ") else "")
@@ -356,6 +408,7 @@ private fun LibraryTab(
         Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
         SectionLabel("Music on this device")
         ToggleRow("Include device music", "Everything Android has indexed (Music, Downloads, SD card)", settings.mediaStoreEnabled) { vm.setMediaStoreEnabled(it) }
+        ToggleRow("Include in main library", "On: device music joins Randomize and the Library list.", settings.deviceInMain) { vm.setDeviceInMain(it) }
         if (!hasAudioPermission) {
             StatusLine(false, "Nocturne needs permission to read audio files on this device.")
             PrimaryButton("Grant music access", onRequestPermissions, Modifier.fillMaxWidth(), icon = Icons.Rounded.Check)
@@ -376,7 +429,13 @@ private fun LibraryTab(
             SecondaryButton("Add folder", onPickFolder, flowWeight(), icon = Icons.Rounded.Add)
             SecondaryButton("Rescan device", { vm.scanLocal() }, flowWeight(), icon = Icons.Rounded.Refresh, enabled = !lib.scanning)
         }
-        StatusLine(null, "${"%,d".format(count)} tracks in the library" + (lib.message?.let { "\n$it" } ?: ""))
+        val perSource = (settings.smbSources.map { it.id } + Source.LOCAL).filter { (counts[it] ?: 0) > 0 }
+        StatusLine(
+            null,
+            "${"%,d".format(count)} tracks in the main library" +
+                (if (settings.smbExtra.isNotEmpty() || !settings.deviceInMain) perSource.joinToString("") { "\n${settings.sourceName(it)}: ${"%,d".format(counts[it])}" } else "") +
+                (lib.message?.let { "\n$it" } ?: ""),
+        )
     }
     }
 }

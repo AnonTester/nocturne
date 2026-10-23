@@ -96,4 +96,20 @@ class ReconcilerTest {
         assertEquals(listOf("a", "b"), dao.idsInFolder("p", Source.SAMBA))
         assertEquals(listOf("c"), dao.idsInFolder("other", Source.SAMBA))
     }
+
+    @Test fun sameFolderPathInTwoSourcesStaysSeparate() = runBlocking {
+        reconciler.reconcile(Source.SAMBA, listOf(track("a")))
+        reconciler.reconcile("smb-x", listOf(track("smb:smb-x:a", source = "smb-x")))
+        assertEquals(listOf("a"), dao.tracksInFolder("p", Source.SAMBA).map { it.id })
+        assertEquals(listOf("smb:smb-x:a"), dao.tracksInFolder("p", "smb-x").map { it.id })
+    }
+
+    @Test fun mainQueueOnlyContainsMergedSources() = runBlocking {
+        reconciler.reconcile(Source.SAMBA, listOf(track("a")))
+        reconciler.reconcile("smb-x", listOf(track("x1", source = "smb-x")))
+        assertEquals(listOf("a"), dao.allIds(listOf(Source.SAMBA)))
+        assertEquals(listOf("a", "x1"), dao.allIds(listOf(Source.SAMBA, "smb-x")).sorted())
+        assertEquals(listOf("x1"), dao.idsInSource("smb-x"))
+        assertEquals(emptyList<String>(), dao.allIds(emptyList()))
+    }
 }

@@ -8,7 +8,7 @@ import app.nocturne.data.SecretStore
 import app.nocturne.data.SettingsRepository
 import app.nocturne.library.CoverLoader
 import app.nocturne.library.LibraryManager
-import app.nocturne.library.SmbShareProvider
+import app.nocturne.library.SmbProviders
 import app.nocturne.playback.PlaybackEngine
 import java.security.Security
 import kotlinx.coroutines.CoroutineScope
@@ -28,10 +28,10 @@ class NocturneApp : Application() {
     lateinit var db: NocturneDatabase; private set
     lateinit var settings: SettingsRepository; private set
     lateinit var secrets: SecretStore; private set
-    /** Used by scanning and tag reading. Playback has its own connection so a big scan can never starve the player. */
-    lateinit var smb: SmbShareProvider; private set
-    lateinit var smbPlayback: SmbShareProvider; private set
-    lateinit var smbEnrich: SmbShareProvider; private set
+    /** One connection per Samba share, in three sets: scanning, tag reading and playback, so a big scan can never starve the player. */
+    lateinit var smb: SmbProviders; private set
+    lateinit var smbPlayback: SmbProviders; private set
+    lateinit var smbEnrich: SmbProviders; private set
     lateinit var library: LibraryManager; private set
     lateinit var engine: PlaybackEngine; private set
     lateinit var covers: CoverLoader; private set
@@ -51,9 +51,9 @@ class NocturneApp : Application() {
         ioScope.launch {
             settings.flow.collect { latestSettings = it }
         }
-        smb = SmbShareProvider(config = { latestSettings.smb }, password = { secrets.smbPassword })
-        smbPlayback = SmbShareProvider(config = { latestSettings.smb }, password = { secrets.smbPassword })
-        smbEnrich = SmbShareProvider(config = { latestSettings.smb }, password = { secrets.smbPassword })
+        smb = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
+        smbPlayback = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
+        smbEnrich = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
         library = LibraryManager(this, db.tracks(), settings, smb, smbEnrich, ioScope)
         covers = CoverLoader(this, smbPlayback)
         abs = AbsRepository(settings, secrets)

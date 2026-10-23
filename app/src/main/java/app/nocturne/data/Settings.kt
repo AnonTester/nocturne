@@ -7,7 +7,6 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
@@ -15,6 +14,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import app.nocturne.ui.theme.ThemeId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore("nocturne_settings")
 
@@ -33,6 +34,20 @@ data class SmbConfig(
     val autoRescanMinutes: Int = 30,
 ) {
     val isConfigured get() = host.isNotBlank() && share.isNotBlank()
+}
+
+/**
+ * One Samba share. The main share (id [Source.SAMBA]) is always part of the main library; added shares can be kept
+ * out of it ([includeInMain] = false) so "Randomize" and the default Library view never contain them.
+ */
+data class SmbSource(
+    val id: String,
+    val name: String,
+    val config: SmbConfig,
+    val includeInMain: Boolean = false,
+    val lastScan: Long = 0,
+) {
+    val isMain get() = id == Source.SAMBA
 }
 
 data class AbsConfig(
@@ -56,9 +71,27 @@ data class AppSettings(
     val smbLastScan: Long = 0,
     val mediaStoreEnabled: Boolean = true,
     val localTreeUris: Set<String> = emptySet(),
+    /** The main share. Added shares are in [smbExtra]; use [smbSources] for all of them. */
     val smb: SmbConfig = SmbConfig(),
+    val smbExtra: List<SmbSource> = emptyList(),
+    /** Device music is part of the main library (random / shuffle all) when true. */
+    val deviceInMain: Boolean = true,
     val abs: AbsConfig = AbsConfig(),
-)
+) {
+    val smbSources: List<SmbSource>
+        get() = listOf(SmbSource(Source.SAMBA, MAIN_NAME, smb, includeInMain = true, lastScan = smbLastScan)) + smbExtra
+
+    fun smbSource(id: String): SmbSource? = smbSources.firstOrNull { it.id == id }
+
+    /** Source ids whose tracks make up the main library (queue "All", Randomize, default Library view). */
+    val mergedSources: List<String>
+        get() = smbSources.filter { it.includeInMain }.map { it.id } + if (deviceInMain) listOf(Source.LOCAL) else emptyList()
+
+    /** Display name of any source id. */
+    fun sourceName(id: String): String = if (id == Source.LOCAL) "This device" else smbSource(id)?.name ?: id
+
+    companion object { const val MAIN_NAME = "Main library" }
+}
 
 class SettingsRepository(private val context: Context) {
     private object K {
@@ -75,6 +108,8 @@ class SettingsRepository(private val context: Context) {
         val smbLastScan = longPreferencesKey("smb_last_scan")
         val mediaStore = booleanPreferencesKey("media_store")
         val trees = stringSetPreferencesKey("local_trees")
+        val deviceInMain = booleanPreferencesKey("device_in_main")
+        val smbExtra = stringPreferencesKey("smb_extra_sources")
         val smbHost = stringPreferencesKey("smb_host")
         val smbShare = stringPreferencesKey("smb_share")
         val smbSub = stringPreferencesKey("smb_sub")
@@ -110,6 +145,8 @@ class SettingsRepository(private val context: Context) {
                 domain = p[K.smbDomain] ?: d.smb.domain,
                 autoRescanMinutes = p[K.smbRescan] ?: d.smb.autoRescanMinutes,
             ),
+            smbExtra = decodeSources(p[K.smbExtra]),
+            deviceInMain = p[K.deviceInMain] ?: d.deviceInMain,
             abs = AbsConfig(
                 serverUrl = p[K.absUrl] ?: "",
                 username = p[K.absUser] ?: "",
@@ -145,9 +182,65 @@ class SettingsRepository(private val context: Context) {
         it[K.smbRescan] = c.autoRescanMinutes.coerceAtLeast(0)
     }
 
+    suspend fun setDeviceInMain(v: Boolean) = edit { it[K.deviceInMain] = v }
+
+    /** Adds or replaces an added share (never the main one), keeping the list order. */
+    suspend fun upsertSmbSource(src: SmbSource) = edit {
+        val list = decodeSources(it[K.smbExtra]).toMutableList()
+        val clean = src.copy(name = src.name.trim().ifEmpty { "Share" }, config = normalized(src.config))
+        val i = list.indexOfFirst { e -> e.id == src.id }
+        if (i >= 0) list[i] = clean else list.add(clean)
+        it[K.smbExtra] = encodeSources(list)
+    }
+
+    suspend fun removeSmbSource(id: String) = edit {
+        it[K.smbExtra] = encodeSources(decodeSources(it[K.smbExtra]).filter { e -> e.id != id })
+    }
+
+    suspend fun setSmbSourceLastScan(id: String, at: Long) {
+        if (id == Source.SAMBA) { setSmbLastScan(at); return }
+        edit {
+            it[K.smbExtra] = encodeSources(decodeSources(it[K.smbExtra]).map { e -> if (e.id == id) e.copy(lastScan = at) else e })
+        }
+    }
+
+    private fun normalized(c: SmbConfig) = c.copy(
+        host = c.host.trim(), share = c.share.trim().trim('/', '\\'), subfolder = c.subfolder.trim().trim('/', '\\'),
+        username = c.username.trim(), domain = c.domain.trim().ifEmpty { "WORKGROUP" }, autoRescanMinutes = c.autoRescanMinutes.coerceAtLeast(0),
+    )
+
     suspend fun setAbs(c: AbsConfig) = edit {
         it[K.absUrl] = c.serverUrl.trim().trimEnd('/')
         it[K.absUser] = c.username.trim()
         it[K.absPackage] = c.appPackage.trim().ifEmpty { "com.audiobookshelf.app" }
     }
+}
+
+internal fun encodeSources(list: List<SmbSource>): String = JSONArray().also { arr ->
+    list.forEach { s ->
+        arr.put(
+            JSONObject()
+                .put("id", s.id).put("name", s.name).put("host", s.config.host).put("share", s.config.share)
+                .put("sub", s.config.subfolder).put("user", s.config.username).put("domain", s.config.domain)
+                .put("rescan", s.config.autoRescanMinutes).put("main", s.includeInMain).put("last", s.lastScan),
+        )
+    }
+}.toString()
+
+internal fun decodeSources(json: String?): List<SmbSource> {
+    if (json.isNullOrBlank()) return emptyList()
+    return runCatching {
+        val arr = JSONArray(json)
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            SmbSource(
+                id = o.getString("id"), name = o.optString("name", "Share"),
+                config = SmbConfig(
+                    host = o.optString("host"), share = o.optString("share"), subfolder = o.optString("sub"),
+                    username = o.optString("user"), domain = o.optString("domain", "WORKGROUP"), autoRescanMinutes = o.optInt("rescan", 30),
+                ),
+                includeInMain = o.optBoolean("main", false), lastScan = o.optLong("last", 0),
+            )
+        }
+    }.getOrDefault(emptyList())
 }

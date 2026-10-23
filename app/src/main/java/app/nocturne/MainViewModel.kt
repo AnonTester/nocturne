@@ -14,6 +14,8 @@ import app.nocturne.data.AppMode
 import app.nocturne.data.AppSettings
 import app.nocturne.data.FolderRow
 import app.nocturne.data.SmbConfig
+import app.nocturne.data.SmbSource
+import app.nocturne.data.Source
 import app.nocturne.data.Track
 import app.nocturne.library.SmbShareProvider
 import app.nocturne.library.TestResult
@@ -25,6 +27,9 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
@@ -44,21 +49,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val position = app.engine.position
     val events = app.engine.events
     val libraryStatus = app.library.status
-    val trackCount: StateFlow<Int> = dao.countFlow().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    private val mergedSources: Flow<List<String>> = settings.map { it.mergedSources }.distinctUntilChanged()
+    /** Tracks in the main library (the merged sources): what "Randomize" and the status line talk about. */
+    val trackCount: StateFlow<Int> = mergedSources.flatMapLatest { dao.countIn(it) }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    /** Tracks per source id, for the source chips and the share list in Settings. */
+    val sourceCounts: StateFlow<Map<String, Int>> =
+        dao.countsBySource().map { rows -> rows.associate { it.source to it.count } }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
     val pendingMetadata: StateFlow<Int> = dao.pendingCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val absState = app.abs.state
 
     // ------------------------------------------------------------ library browsing
 
+    /** Source shown in the Library / Albums lists; null = the merged main library. */
+    val trackSource = MutableStateFlow<String?>(null)
+    val folderSource = MutableStateFlow<String?>(null)
+
     val trackQuery = MutableStateFlow("")
-    val tracksPaged: Flow<PagingData<Track>> = trackQuery.debounce(200).flatMapLatest { q ->
-        Pager(PagingConfig(pageSize = 60, enablePlaceholders = false)) { dao.search(q.trim()) }.flow
-    }.cachedIn(viewModelScope)
+    val tracksPaged: Flow<PagingData<Track>> =
+        combine(trackQuery.debounce(200), trackSource, mergedSources) { q, src, merged -> Triple(q, src, merged) }
+            .flatMapLatest { (q, src, merged) ->
+                Pager(PagingConfig(pageSize = 60, enablePlaceholders = false)) { dao.search(q.trim(), src?.let(::listOf) ?: merged) }.flow
+            }.cachedIn(viewModelScope)
 
     val folderQuery = MutableStateFlow("")
-    val folders: Flow<List<FolderRow>> = folderQuery.debounce(150).flatMapLatest { dao.folders(it.trim()) }
+    val folders: Flow<List<FolderRow>> =
+        combine(folderQuery.debounce(150), folderSource, mergedSources) { q, src, merged -> Triple(q, src, merged) }
+            .flatMapLatest { (q, src, merged) -> dao.folders(q.trim(), src?.let(::listOf) ?: merged) }
 
-    suspend fun tracksIn(folderPath: String): List<Track> = dao.tracksInFolder(folderPath)
+    suspend fun tracksIn(folderPath: String, source: String): List<Track> = dao.tracksInFolder(folderPath, source)
 
     suspend fun cover(track: Track): Bitmap? = app.covers.load(track)
 
@@ -81,6 +99,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun playFolder(f: FolderRow, source: String, shuffle: Boolean) =
         app.engine.playFolder(f.folderPath, source, f.name, shuffle)
     fun randomizeAll() = app.engine.randomizeAll()
+    fun playSource(id: String, shuffle: Boolean) = app.engine.playSource(id, settings.value.sourceName(id), shuffle)
     fun startSleepTimer(minutes: Int, finishCurrent: Boolean) = app.engine.startSleepTimer(minutes, finishCurrent)
     fun cancelSleepTimer() = app.engine.cancelSleepTimer()
     fun extendSleepTimer(minutes: Int) = app.engine.extendSleepTimer(minutes)
@@ -102,23 +121,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ------------------------------------------------------------ samba / device library
 
-    fun hasSmbPassword() = app.secrets.smbPassword.isNotEmpty()
+    fun hasSmbPassword(sourceId: String = Source.SAMBA) = app.secrets.smbPasswordFor(sourceId).isNotEmpty()
 
-    suspend fun testSmb(cfg: SmbConfig, password: String?): TestResult = withContext(Dispatchers.IO) {
-        SmbShareProvider.test(cfg, password ?: app.secrets.smbPassword)
+    suspend fun testSmb(sourceId: String, cfg: SmbConfig, password: String?, isNew: Boolean = false): TestResult = withContext(Dispatchers.IO) {
+        SmbShareProvider.test(cfg, password ?: sharedPassword(sourceId, cfg, isNew))
     }
 
-    /** Saves the config (and password, if the user typed one) and rescans the share, independent of any screen. */
-    fun saveSmbAndScan(cfg: SmbConfig, password: String?) {
+    /** A new share on the same server and user as the main one may reuse the main share's saved password. */
+    private fun sharedPassword(sourceId: String, cfg: SmbConfig, isNew: Boolean): String {
+        val own = app.secrets.smbPasswordFor(sourceId)
+        if (own.isNotEmpty() || !isNew) return own
+        val main = settings.value.smb
+        val same = main.host.trim().equals(cfg.host.trim(), ignoreCase = true) && main.username.trim().equals(cfg.username.trim(), ignoreCase = true)
+        return if (same) app.secrets.smbPasswordFor(Source.SAMBA) else ""
+    }
+
+    /** Whether leaving the password empty for this new share would reuse the main share's password. */
+    fun reusesMainPassword(cfg: SmbConfig): Boolean {
+        val main = settings.value.smb
+        return app.secrets.smbPasswordFor(Source.SAMBA).isNotEmpty() &&
+            main.host.trim().equals(cfg.host.trim(), ignoreCase = true) && main.username.trim().equals(cfg.username.trim(), ignoreCase = true)
+    }
+
+    /** Saves a share (and its password, if the user typed one) and rescans it, independent of any screen. */
+    fun saveSmbAndScan(src: SmbSource, password: String?, isNew: Boolean = false) {
         app.library.launch {
-            if (password != null) app.secrets.smbPassword = password
-            app.settings.setSmb(cfg)
-            app.smb.close()
-            app.smbPlayback.close()
-            app.smbEnrich.close()
-            app.library.scanSmb()
+            val pw = password ?: if (isNew) sharedPassword(src.id, src.config, isNew = true).takeIf { it.isNotEmpty() } else null
+            if (pw != null) app.secrets.setSmbPasswordFor(src.id, pw)
+            if (src.isMain) app.settings.setSmb(src.config) else app.settings.upsertSmbSource(src)
+            app.smb.close(src.id)
+            app.smbPlayback.close(src.id)
+            app.smbEnrich.close(src.id)
+            app.library.scanSmb(src.id)
         }
     }
+
+    /** Only the name and the "include in main library" flag changed: no rescan needed. */
+    fun updateShareFlags(src: SmbSource) {
+        viewModelScope.launch { app.settings.upsertSmbSource(src) }
+    }
+
+    fun removeShare(sourceId: String) {
+        app.library.launch {
+            app.library.removeSource(sourceId)
+            app.secrets.removeSmbPassword(sourceId)
+            app.smbPlayback.remove(sourceId)
+        }
+    }
+
+    fun setDeviceInMain(v: Boolean) = viewModelScope.launch { app.settings.setDeviceInMain(v) }
 
     fun scanLocal() {
         app.library.launch { app.library.scanLocal(); lastLocalScan = System.currentTimeMillis() }

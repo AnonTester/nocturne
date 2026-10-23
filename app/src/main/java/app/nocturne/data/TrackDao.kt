@@ -21,11 +21,21 @@ interface TrackDao {
     @Query("SELECT COUNT(*) FROM tracks")
     fun countFlow(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM tracks WHERE source IN (:sources)")
+    fun countIn(sources: List<String>): Flow<Int>
+
+    @Query("SELECT source, COUNT(*) AS count FROM tracks GROUP BY source")
+    fun countsBySource(): Flow<List<SourceCount>>
+
     @Query("SELECT COUNT(*) FROM tracks WHERE source = :source")
     suspend fun count(source: String): Int
 
-    @Query("SELECT id FROM tracks ORDER BY folderPath COLLATE NOCASE, filename COLLATE NOCASE")
-    suspend fun allIds(): List<String>
+    /** The queue of the main library: only the sources that are merged into it. */
+    @Query("SELECT id FROM tracks WHERE source IN (:sources) ORDER BY folderPath COLLATE NOCASE, filename COLLATE NOCASE")
+    suspend fun allIds(sources: List<String>): List<String>
+
+    @Query("SELECT id FROM tracks WHERE source = :source ORDER BY folderPath COLLATE NOCASE, filename COLLATE NOCASE")
+    suspend fun idsInSource(source: String): List<String>
 
     @Query("SELECT id FROM tracks WHERE folderPath = :folderPath AND source = :source ORDER BY filename COLLATE NOCASE")
     suspend fun idsInFolder(folderPath: String, source: String): List<String>
@@ -44,23 +54,23 @@ interface TrackDao {
 
     @Query(
         """SELECT * FROM tracks
-           WHERE (:q = '' OR title LIKE '%' || :q || '%' OR artist LIKE '%' || :q || '%'
+           WHERE source IN (:sources) AND (:q = '' OR title LIKE '%' || :q || '%' OR artist LIKE '%' || :q || '%'
                   OR album LIKE '%' || :q || '%' OR folder LIKE '%' || :q || '%')
            ORDER BY folderPath COLLATE NOCASE, filename COLLATE NOCASE""",
     )
-    fun search(q: String): PagingSource<Int, Track>
+    fun search(q: String, sources: List<String>): PagingSource<Int, Track>
 
     @Query(
         """SELECT folderPath, MIN(folder) AS name, COUNT(*) AS trackCount, MIN(artist) AS sampleArtist, source
            FROM tracks
-           WHERE (:q = '' OR folder LIKE '%' || :q || '%' OR artist LIKE '%' || :q || '%')
+           WHERE source IN (:sources) AND (:q = '' OR folder LIKE '%' || :q || '%' OR artist LIKE '%' || :q || '%')
            GROUP BY folderPath, source
            ORDER BY name COLLATE NOCASE""",
     )
-    fun folders(q: String): Flow<List<FolderRow>>
+    fun folders(q: String, sources: List<String>): Flow<List<FolderRow>>
 
-    @Query("SELECT * FROM tracks WHERE folderPath = :folderPath ORDER BY filename COLLATE NOCASE")
-    suspend fun tracksInFolder(folderPath: String): List<Track>
+    @Query("SELECT * FROM tracks WHERE folderPath = :folderPath AND source = :source ORDER BY filename COLLATE NOCASE")
+    suspend fun tracksInFolder(folderPath: String, source: String): List<Track>
 
     @Query("SELECT * FROM tracks WHERE metaDone = 0 LIMIT :limit")
     suspend fun pendingMetadata(limit: Int): List<Track>

@@ -23,6 +23,18 @@ class SecretStore(context: Context) {
         get() = prefs.getString(SMB_PASSWORD, "") ?: ""
         set(v) = prefs.edit().putString(SMB_PASSWORD, v).apply()
 
+    /** Password of any Samba share: the main one keeps its original key, added shares get one key each. */
+    fun smbPasswordFor(sourceId: String): String =
+        if (sourceId == Source.SAMBA) smbPassword else prefs.getString(SMB_PASSWORD + "_" + sourceId, "") ?: ""
+
+    fun setSmbPasswordFor(sourceId: String, value: String) {
+        if (sourceId == Source.SAMBA) smbPassword = value else prefs.edit().putString(SMB_PASSWORD + "_" + sourceId, value).apply()
+    }
+
+    fun removeSmbPassword(sourceId: String) {
+        if (sourceId != Source.SAMBA) prefs.edit().remove(SMB_PASSWORD + "_" + sourceId).apply()
+    }
+
     var absPassword: String
         get() = prefs.getString(ABS_PASSWORD, "") ?: ""
         set(v) = prefs.edit().putString(ABS_PASSWORD, v).apply()

@@ -17,7 +17,7 @@ import app.nocturne.data.SettingsRepository
 import app.nocturne.data.Track
 import app.nocturne.data.TrackDao
 import app.nocturne.library.RoutingDataSource
-import app.nocturne.library.SmbShareProvider
+import app.nocturne.library.SmbProviders
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -48,7 +49,7 @@ class PlaybackEngine(
     private val context: Context,
     private val dao: TrackDao,
     private val settings: SettingsRepository,
-    smb: SmbShareProvider,
+    smb: SmbProviders,
     private val scope: CoroutineScope,
 ) {
     val player: ExoPlayer = ExoPlayer.Builder(context)
@@ -109,6 +110,10 @@ class PlaybackEngine(
             // Keep the queue in step with library changes (scans, enrichment-free: only count changes).
             dao.countFlow().debounce(800).collect { refreshQueue() }
         }
+        scope.launch {
+            // Ticking "include in main library" changes what the whole-library queue contains.
+            settings.flow.map { it.mergedSources }.distinctUntilChanged().drop(1).collect { refreshQueue() }
+        }
     }
 
     // ---------------------------------------------------------------- startup
@@ -117,9 +122,14 @@ class PlaybackEngine(
         val s = settings.flow.first()
         _state.update { it.copy(volume = s.volume, whisper = s.whisper, shuffle = s.shuffle, repeat = s.repeat) }
         applyGain()
+        val last = if (s.lastTrackId.isNotEmpty()) dao.byId(s.lastTrackId) else null
+        if (last != null && last.source !in s.mergedSources) {
+            // The last track came from a source kept out of the main library: stay inside that source.
+            queueScope = QueueScope.Source(last.source, s.sourceName(last.source))
+            _state.update { it.copy(scopeName = scopeLabel(queueScope)) }
+        }
         refreshQueue()
-        val track = (if (s.lastTrackId.isNotEmpty()) dao.byId(s.lastTrackId) else null)
-            ?: queueIds.firstOrNull()?.let { dao.byId(it) }
+        val track = last ?: queueIds.firstOrNull()?.let { dao.byId(it) }
         if (track != null) {
             _state.update { it.copy(track = track, durationMs = track.durationMs) }
             shuffle.recordPlay(track.id)
@@ -128,8 +138,9 @@ class PlaybackEngine(
 
     private suspend fun refreshQueue() {
         queueIds = when (val q = queueScope) {
-            QueueScope.All -> dao.allIds()
+            QueueScope.All -> dao.allIds(settings.flow.first().mergedSources)
             is QueueScope.Folder -> dao.idsInFolder(q.folderPath, q.source)
+            is QueueScope.Source -> dao.idsInSource(q.id)
         }
         _state.update { it.copy(queueSize = queueIds.size) }
         if (_state.value.track == null && queueIds.isNotEmpty()) {
@@ -170,11 +181,31 @@ class PlaybackEngine(
                 queueScope = scopeOverride
                 refreshQueue()
             }
-            _state.update { it.copy(scopeName = (queueScope as? QueueScope.Folder)?.name) }
+            _state.update { it.copy(scopeName = scopeLabel(queueScope)) }
             shuffle.recordPlay(track.id)
             cancelFade()
             load(track, autoPlay = true)
             ensureService()
+        }
+    }
+
+    private fun scopeLabel(q: QueueScope): String? = when (q) {
+        QueueScope.All -> null
+        is QueueScope.Folder -> q.name
+        is QueueScope.Source -> q.name
+    }
+
+    /** Plays everything of one source, e.g. a share that is not part of the main library. */
+    fun playSource(id: String, name: String, shuffleOn: Boolean) {
+        scope.launch {
+            val q = QueueScope.Source(id, name)
+            queueScope = q
+            refreshQueue()
+            setShuffle(shuffleOn)
+            shuffle.reset()
+            val first = if (shuffleOn) queueIds.randomOrNull() else queueIds.firstOrNull()
+            val track = first?.let { dao.byId(it) } ?: return@launch
+            playTrack(track, q)
         }
     }
 

@@ -48,6 +48,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import app.nocturne.MainViewModel
+import app.nocturne.data.AppSettings
 import app.nocturne.data.FolderRow
 import app.nocturne.data.Source
 import app.nocturne.data.Track
@@ -67,6 +68,25 @@ private fun SearchField(initial: String, onChange: (String) -> Unit, placeholder
     )
 }
 
+/**
+ * Chips to switch the list between the merged library and one source. Hidden while everything is merged (no added
+ * shares, device music merged), so a single-share setup looks exactly as before. [selected] null = the merged library.
+ */
+@Composable
+private fun SourceChips(settings: AppSettings, counts: Map<String, Int>, selected: String?, onSelect: (String?) -> Unit, modifier: Modifier = Modifier) {
+    val ids = settings.smbSources.map { it.id } + Source.LOCAL
+    // Sources without tracks (e.g. device music with no permission) are not worth a chip, except the one that is selected.
+    val shown = ids.filter { (counts[it] ?: 0) > 0 || it == selected }
+    if (settings.smbExtra.isEmpty() && settings.deviceInMain) return
+    val options = listOf<Pair<String?, String>>(null to "Merged library") +
+        shown.map { it to "${settings.sourceName(it)} (${"%,d".format(counts[it] ?: 0)})" }
+    ChipRow(options, selected, modifier, onSelect)
+}
+
+/** A track opened from the merged list plays in the main library; opened under a source chip it plays inside that source. */
+private fun queueFor(source: String?, track: Track, settings: AppSettings): QueueScope =
+    source?.let { QueueScope.Source(it, settings.sourceName(it)) } ?: QueueScope.All
+
 // ------------------------------------------------------------------ albums / folders
 
 @UnstableApi
@@ -76,10 +96,13 @@ fun AlbumsDialog(vm: MainViewModel, onDismiss: () -> Unit) {
     val query by vm.folderQuery.collectAsState()
     val folders by vm.folders.collectAsState(initial = emptyList())
     var selected by remember { mutableStateOf<FolderRow?>(null) }
-    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.folderQuery.value = "" } }
+    val settings by vm.settings.collectAsState()
+    val counts by vm.sourceCounts.collectAsState()
+    val source by vm.folderSource.collectAsState()
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.folderQuery.value = ""; vm.folderSource.value = null } }
     var folderTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
 
-    LaunchedEffect(selected) { folderTracks = selected?.let { vm.tracksIn(it.folderPath) } ?: emptyList() }
+    LaunchedEffect(selected) { folderTracks = selected?.let { vm.tracksIn(it.folderPath, it.source) } ?: emptyList() }
 
     FullDialog(
         onDismiss,
@@ -91,6 +114,13 @@ fun AlbumsDialog(vm: MainViewModel, onDismiss: () -> Unit) {
         if (sel == null) {
             Column(Modifier.fillMaxSize()) {
                 SearchField(query, { vm.folderQuery.value = it }, "Search folders or artists", Modifier.fillMaxWidth().padding(12.dp))
+                SourceChips(settings, counts, source, { vm.folderSource.value = it }, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 4.dp))
+                source?.let { id ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PrimaryButton("Shuffle ${settings.sourceName(id)}", { vm.playSource(id, true); onDismiss() }, Modifier.weight(1f), icon = Icons.Rounded.Shuffle)
+                        SecondaryButton("Play in order", { vm.playSource(id, false); onDismiss() }, icon = Icons.Rounded.PlayArrow)
+                    }
+                }
                 if (folders.isEmpty()) EmptyHint("No folders yet. Add music in Settings > Library.")
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(300.dp),
@@ -98,7 +128,7 @@ fun AlbumsDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    gridItems(folders, key = { it.folderPath + "|" + it.name }) { f ->
+                    gridItems(folders, key = { it.source + "|" + it.folderPath + "|" + it.name }) { f ->
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.surfaceHigh)
                                 .clickable { selected = f }.padding(10.dp),
@@ -149,16 +179,21 @@ fun TracksDialog(vm: MainViewModel, currentId: String?, onDismiss: () -> Unit) {
     val query by vm.trackQuery.collectAsState()
     val count by vm.trackCount.collectAsState()
     val items = vm.tracksPaged.collectAsLazyPagingItems()
-    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.trackQuery.value = "" } }
+    val settings by vm.settings.collectAsState()
+    val counts by vm.sourceCounts.collectAsState()
+    val source by vm.trackSource.collectAsState()
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.trackQuery.value = ""; vm.trackSource.value = null } }
 
     FullDialog(
-        onDismiss, "Library", "${"%,d".format(count)} indexed tracks", Icons.Rounded.LibraryMusic,
+        onDismiss, "Library", source?.let { "${settings.sourceName(it)}: ${"%,d".format(items.itemCount)} tracks" } ?: "${"%,d".format(count)} indexed tracks", Icons.Rounded.LibraryMusic,
         headerActions = {
+            // Randomize is the whole main library; with a source picked the same button shuffles just that source.
+            val act = { source?.let { vm.playSource(it, true) } ?: vm.randomizeAll(); onDismiss() }
             // Icon only on a narrow (portrait) screen, or it squeezes the title away.
             if (isNarrowWindow()) {
-                IconTile(Icons.Rounded.Shuffle, "Randomize", { vm.randomizeAll(); onDismiss() }, size = 44.dp, selected = true)
+                IconTile(Icons.Rounded.Shuffle, if (source == null) "Randomize" else "Shuffle ${settings.sourceName(source!!)}", act, size = 44.dp, selected = true)
             } else {
-                PrimaryButton("Randomize", { vm.randomizeAll(); onDismiss() }, icon = Icons.Rounded.Shuffle)
+                PrimaryButton(if (source == null) "Randomize" else "Shuffle ${settings.sourceName(source!!)}", act, icon = Icons.Rounded.Shuffle)
             }
             Spacer(Modifier.width(8.dp))
         },
@@ -170,12 +205,15 @@ fun TracksDialog(vm: MainViewModel, currentId: String?, onDismiss: () -> Unit) {
                 Spacer(Modifier.width(10.dp))
                 Icon(Icons.Rounded.Search, null, tint = c.textMuted)
             }
+            SourceChips(settings, counts, source, { vm.trackSource.value = it }, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 4.dp))
             if (items.itemCount == 0) EmptyHint(if (count == 0) "No tracks yet. Add music in Settings > Library." else "No tracks match your search.")
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
                 items(items.itemCount, key = items.itemKey { it.id }) { i ->
                     val t = items[i]
                     if (t != null) {
-                        TrackRow(t, i + 1, current = t.id == currentId) { vm.playTrack(t, QueueScope.All); onDismiss() }
+                        TrackRow(t, i + 1, current = t.id == currentId) {
+                            vm.playTrack(t, queueFor(source, t, settings)); onDismiss()
+                        }
                     }
                 }
             }

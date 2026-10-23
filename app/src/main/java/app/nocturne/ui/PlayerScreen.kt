@@ -345,7 +345,7 @@ fun CoverArt(track: Track?, bitmap: Bitmap?, modifier: Modifier = Modifier, fill
             }
         }
         if (track != null) {
-            val label = if (track.source == Source.SAMBA) "SAMBA" else "LOCAL"
+            val label = if (Source.isSmb(track.source)) "SAMBA" else "LOCAL"
             Text(
                 label, color = c.textPrimary, style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.align(Alignment.TopStart).padding(8.dp)

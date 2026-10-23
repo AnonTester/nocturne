@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -26,7 +27,6 @@ import kotlinx.coroutines.withContext
 data class LibraryStatus(
     val scanning: Boolean = false,
     val message: String? = null,
-    val lastSmbScanAt: Long = 0,
     /** Set by background rescans that found new files; the UI shows a dismissible banner. */
     val newTracksFound: Int = 0,
 )
@@ -35,27 +35,25 @@ class LibraryManager(
     context: Context,
     private val dao: TrackDao,
     private val settings: SettingsRepository,
-    private val smb: SmbShareProvider,
-    /** Tag reading gets its own connection so it can't starve scans (or playback, which has a third one). */
-    smbEnrich: SmbShareProvider,
+    private val smb: SmbProviders,
+    /** Tag reading gets its own connections so it can't starve scans (or playback, which has a third set). */
+    private val smbEnrich: SmbProviders,
     private val scope: CoroutineScope,
 ) {
     private val appContext = context.applicationContext
     private val local = LocalScanner(appContext)
-    private val smbScanner = SmbScanner(smb)
+    private val smbScanner = SmbScanner()
     private val enricher = MetadataEnricher(appContext, dao, smbEnrich)
-    // One lock per source: a long Samba scan must not block a quick device rescan (or the other way round).
-    private val smbLock = Mutex()
+    // One lock per source: a long scan of one share must not block a quick device rescan or another share.
+    private val smbLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+    private fun smbLock(sourceId: String) = smbLocks.getOrPut(sourceId) { Mutex() }
     private val localLock = Mutex()
+    private var activeScans = 0
 
     private val _status = MutableStateFlow(LibraryStatus())
     val status: StateFlow<LibraryStatus> = _status.asStateFlow()
 
     fun start() {
-        scope.launch(Dispatchers.IO) {
-            val last = settings.flow.first().smbLastScan
-            _status.update { it.copy(lastSmbScanAt = last) }
-        }
         scope.launch(Dispatchers.IO) { enrichmentLoop() }
         scope.launch(Dispatchers.IO) { autoRescanLoop() }
     }
@@ -65,43 +63,49 @@ class LibraryManager(
 
     fun dismissNewTracks() = _status.update { it.copy(newTracksFound = 0) }
 
-    private inline fun MutableStateFlow<LibraryStatus>.update(f: (LibraryStatus) -> LibraryStatus) {
-        value = f(value)
+    private fun scanStarted(message: String) {
+        synchronized(this) { activeScans++ }
+        _status.update { it.copy(scanning = true, message = message) }
     }
 
-    /** Scans the Samba share (if configured) and reconciles the library. Returns a user-readable result. */
-    suspend fun scanSmb(background: Boolean = false): String = smbLock.withLock {
-        val cfg = settings.flow.first().smb
-        if (!cfg.isConfigured) return@withLock "No Samba share configured."
-        _status.update { it.copy(scanning = true, message = "Scanning \\\\${cfg.host}\\${cfg.share} ...") }
+    /** Several shares can scan at once; "scanning" stays true until the last one is done. */
+    private fun scanEnded(message: String, more: (LibraryStatus) -> LibraryStatus = { it }) {
+        val others = synchronized(this) { --activeScans > 0 }
+        _status.update { more(it).copy(scanning = others, message = message) }
+    }
+
+    /** Scans one Samba share (if configured) and reconciles its tracks. Returns a user-readable result. */
+    suspend fun scanSmb(sourceId: String = Source.SAMBA, background: Boolean = false): String = smbLock(sourceId).withLock {
+        val src = settings.flow.first().smbSource(sourceId) ?: return@withLock "Share not found."
+        val cfg = src.config
+        val label = if (src.isMain) "Samba" else src.name
+        if (!cfg.isConfigured) return@withLock "No Samba share configured for $label."
+        scanStarted("Scanning $label: \\\\${cfg.host}\\${cfg.share} ...")
         try {
             val result = withContext(Dispatchers.IO) {
                 val ctx = currentCoroutineContext()
-                smbScanner.scan(cfg, { ctx.isActive }) { n ->
-                    _status.update { it.copy(message = "Scanning share... $n tracks found") }
+                smbScanner.scan(smb.get(sourceId), sourceId, cfg, { ctx.isActive }) { n ->
+                    _status.update { it.copy(message = "Scanning $label... $n tracks found") }
                 }
             }
             // A scan that couldn't read some folders only adds/updates; it never deletes, or a network hiccup would wipe albums.
             val complete = result.unreadableFolders == 0
-            val added = withContext(Dispatchers.IO) { reconcile(Source.SAMBA, result.tracks, deleteMissing = complete) }
+            val added = withContext(Dispatchers.IO) { reconcile(sourceId, result.tracks, deleteMissing = complete) }
             val now = System.currentTimeMillis()
-            if (complete) settings.setSmbLastScan(now)
-            val msg = "Samba scan complete: ${result.tracks.size} tracks" + (if (added > 0) " ($added new)" else "") +
+            if (complete) settings.setSmbSourceLastScan(sourceId, now)
+            val msg = "$label scan complete: ${result.tracks.size} tracks" + (if (added > 0) " ($added new)" else "") +
                 (if (!complete) ". ${result.unreadableFolders} folders could not be read; nothing was removed, will retry later." else "")
-            _status.update {
-                it.copy(
-                    scanning = false, message = msg, lastSmbScanAt = if (complete) now else it.lastSmbScanAt,
-                    newTracksFound = if (background && added > 0) it.newTracksFound + added else it.newTracksFound,
-                )
+            scanEnded(msg) {
+                it.copy(newTracksFound = if (background && added > 0 && src.includeInMain) it.newTracksFound + added else it.newTracksFound)
             }
             msg
         } catch (e: CancellationException) {
-            _status.update { it.copy(scanning = false, message = "Samba scan cancelled") }
+            scanEnded("$label scan cancelled")
             throw e
         } catch (e: Exception) {
-            smb.close()
-            val msg = "Samba scan failed: " + SmbShareProvider.describe(e, cfg)
-            _status.update { it.copy(scanning = false, message = msg) }
+            smb.close(sourceId)
+            val msg = "$label scan failed: " + SmbShareProvider.describe(e, cfg)
+            scanEnded(msg)
             msg
         }
     }
@@ -109,7 +113,7 @@ class LibraryManager(
     /** Re-reads MediaStore and all picked folders. */
     suspend fun scanLocal(): String = localLock.withLock {
         val s = settings.flow.first()
-        _status.update { it.copy(scanning = true, message = "Scanning device music...") }
+        scanStarted("Scanning device music...")
         try {
             val found = withContext(Dispatchers.IO) {
                 val all = LinkedHashMap<String, Track>()
@@ -121,23 +125,32 @@ class LibraryManager(
             }
             val added = withContext(Dispatchers.IO) { reconcile(Source.LOCAL, found) }
             val msg = "Device scan complete: ${found.size} tracks" + if (added > 0) " ($added new)" else ""
-            _status.update { it.copy(scanning = false, message = msg) }
+            scanEnded(msg)
             msg
         } catch (e: CancellationException) {
-            _status.update { it.copy(scanning = false, message = "Device scan cancelled") }
+            scanEnded("Device scan cancelled")
             throw e
         } catch (e: SecurityException) {
             val msg = "No permission to read device music. Grant access in Settings."
-            _status.update { it.copy(scanning = false, message = msg) }
+            scanEnded(msg)
             msg
         } catch (e: Exception) {
             val msg = "Device scan failed: ${e.message}"
-            _status.update { it.copy(scanning = false, message = msg) }
+            scanEnded(msg)
             msg
         }
     }
 
-    suspend fun clearSamba() = withContext(Dispatchers.IO) { dao.deleteSource(Source.SAMBA) }
+    /** Deletes an added share: its tracks, its connections and its settings. The main share cannot be removed. */
+    suspend fun removeSource(sourceId: String) {
+        if (sourceId == Source.SAMBA || sourceId == Source.LOCAL) return
+        smbLock(sourceId).withLock {
+            withContext(Dispatchers.IO) { dao.deleteSource(sourceId) }
+            settings.removeSmbSource(sourceId)
+            smb.remove(sourceId)
+            smbEnrich.remove(sourceId)
+        }
+    }
 
     private val reconciler = Reconciler(dao)
 
@@ -154,11 +167,12 @@ class LibraryManager(
     private suspend fun autoRescanLoop() {
         while (currentCoroutineContext().isActive) {
             delay(60_000)
-            val cfg = settings.flow.first().smb
-            if (!cfg.isConfigured || cfg.autoRescanMinutes <= 0) continue
-            val last = _status.value.lastSmbScanAt
-            if (last == 0L || System.currentTimeMillis() - last < cfg.autoRescanMinutes * 60_000L) continue
-            if (!_status.value.scanning) scanSmb(background = true)
+            for (src in settings.flow.first().smbSources) {
+                val cfg = src.config
+                if (!cfg.isConfigured || cfg.autoRescanMinutes <= 0) continue
+                if (src.lastScan == 0L || System.currentTimeMillis() - src.lastScan < cfg.autoRescanMinutes * 60_000L) continue
+                if (!smbLock(src.id).isLocked) scanSmb(src.id, background = true)
+            }
         }
     }
 }

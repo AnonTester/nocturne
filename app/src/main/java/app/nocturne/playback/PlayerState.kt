@@ -29,4 +29,6 @@ sealed interface EngineEvent {
 sealed interface QueueScope {
     data object All : QueueScope
     data class Folder(val folderPath: String, val source: String, val name: String) : QueueScope
+    /** Everything of one source (e.g. a share that is kept out of the main library). */
+    data class Source(val id: String, val name: String) : QueueScope
 }

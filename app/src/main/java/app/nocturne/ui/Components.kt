@@ -186,6 +186,34 @@ fun ButtonFlow(content: @Composable androidx.compose.foundation.layout.FlowRowSc
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun androidx.compose.foundation.layout.FlowRowScope.flowWeight(weight: Float = 1f): Modifier = Modifier.weight(weight).widthIn(min = 150.dp)
 
+/** A choice chip: the selected one is tinted with the accent. Used for source pickers. */
+@Composable
+fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val c = Nocturne.colors
+    Box(
+        modifier.height(44.dp).clip(ControlShape)
+            .background(if (selected) c.accentContainer else c.surfaceHigh)
+            .border(1.dp, if (selected) c.accent.copy(alpha = 0.5f) else c.border, ControlShape)
+            .clickable(onClick = onClick).padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (selected) c.accent else c.textSecondary, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Wrapping row of [ChoiceChip]s; [options] are (value, label) pairs and a null value means "no filter". */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun <T> ChipRow(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { (value, label) -> ChoiceChip(label, value == selected) { onSelect(value) } }
+    }
+}
+
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(

@@ -120,20 +120,22 @@ class SmbDataSource(private val provider: SmbShareProvider) : BaseDataSource(/* 
     }
 }
 
-/** Sends smb:// to [SmbDataSource] and everything else (content://, file://) to the default sources. */
+/** Sends smb:// to an [SmbDataSource] on the track's own share (`?src=`) and everything else (content://, file://) to the default sources. */
 @UnstableApi
-class RoutingDataSource(context: Context, provider: SmbShareProvider) : DataSource {
-    private val smb = SmbDataSource(provider)
+class RoutingDataSource(context: Context, private val providers: SmbProviders) : DataSource {
     private val other = DefaultDataSource.Factory(context).createDataSource()
+    private val listeners = mutableListOf<TransferListener>()
     private var active: DataSource? = null
 
     override fun addTransferListener(transferListener: TransferListener) {
-        smb.addTransferListener(transferListener)
+        listeners.add(transferListener)
         other.addTransferListener(transferListener)
     }
 
     override fun open(dataSpec: DataSpec): Long {
-        val target = if (dataSpec.uri.scheme == "smb") smb else other
+        val target = if (dataSpec.uri.scheme == "smb") {
+            SmbDataSource(providers.get(SmbUri.sourceOf(dataSpec.uri))).also { s -> listeners.forEach(s::addTransferListener) }
+        } else other
         active = target
         return target.open(dataSpec)
     }
@@ -149,7 +151,7 @@ class RoutingDataSource(context: Context, provider: SmbShareProvider) : DataSour
         try { active?.close() } finally { active = null }
     }
 
-    class Factory(private val context: Context, private val provider: SmbShareProvider) : DataSource.Factory {
-        override fun createDataSource(): DataSource = RoutingDataSource(context, provider)
+    class Factory(private val context: Context, private val providers: SmbProviders) : DataSource.Factory {
+        override fun createDataSource(): DataSource = RoutingDataSource(context, providers)
     }
 }

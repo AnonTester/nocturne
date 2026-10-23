@@ -21,6 +21,13 @@ Bedside music player + Audiobookshelf "last played" widget + home-screen (launch
 - `abs/` Audiobookshelf REST client + repository. `launcher/` app list, default-launcher settings, ABS launch.
 - `ui/` Compose screens. **All colours come from `ui/theme/NocturneColors` tokens; never use literal colours in components.**
 
+## Sources
+- `tracks.source` is a source id: `local` (device), `samba` (the main share, original ids/URIs, always merged) or `smb-xxxxxxxx` (an added share). Anything that is not `local` is Samba (`Source.isSmb`).
+- Track ids: main `smb:<path>`, added `smb:<shareId>:<path>`. Added shares' URIs carry `?src=<shareId>` (missing = main) so playback, tags and covers use the right connection (`SmbUri`, `RoutingDataSource`).
+- Settings: main share in its own keys, added shares as JSON (`smb_extra_sources`), passwords per share in `SecretStore`. `AppSettings.mergedSources` = shares with `includeInMain` + device if `deviceInMain`; `QueueScope.All`, Randomize and the default Library/Albums lists use only those. A share that is not merged is played via `QueueScope.Source`.
+- `SmbProviders` gives one `SmbShareProvider` per share, in three sets (scan, tag reading, playback).
+- Folder queries must always filter by source too (two shares can share a folder path).
+
 ## Hard-won rules
 - Three separate SMB connections on purpose: scanning, tag reading, playback. Sharing one made playback stall during scans.
 - Never wrap SMB reads for ExoPlayer/MediaMetadataRetriever without `SmbReadAhead`: parsers do ~260-byte reads and each was a network round trip.

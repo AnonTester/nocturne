@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 class MetadataEnricher(
     private val context: Context,
     private val dao: TrackDao,
-    private val smb: SmbShareProvider,
+    private val smb: SmbProviders,
 ) {
     /** Returns how many tracks were processed in this pass (0 means nothing is pending). */
     suspend fun runBatch(batchSize: Int = 120): Int {
@@ -35,8 +35,8 @@ class MetadataEnricher(
         val r = MediaMetadataRetriever()
         var smbSource: SmbMediaDataSource? = null
         try {
-            if (t.source == Source.SAMBA) {
-                smbSource = SmbMediaDataSource(smb, SmbUri.sharePath(Uri.parse(t.uri)))
+            if (Source.isSmb(t.source)) {
+                smbSource = SmbMediaDataSource(smb.get(t.source), SmbUri.sharePath(Uri.parse(t.uri)))
                 r.setDataSource(smbSource)
             } else {
                 r.setDataSource(context, Uri.parse(t.uri))

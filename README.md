@@ -74,6 +74,7 @@ Use `-r` to update in place and keep data. If the signing key differs from the i
 Then, on the phone:
 1. Open Nocturne. Allow notifications and, when asked, access to music/audio.
 2. **Settings > Library**: enter the Samba host, share, user and password (and optionally a subfolder), run *Test connection*, then *Save & scan share*. For device music, enable the device library and/or pick a folder.
+   - **More shares:** tap *+ Add share* in the same tab (the form starts with the main share's server and user; an empty password reuses the main share's if server and user match). Give it a name such as "Review" or "Comedy". An added share is **not** part of the main library by default: Randomize and the default Library/Albums lists skip it, and you play it from the source chips in *Library* and *Albums* (*Shuffle <name>* plays only that share). Turn on *Include in main library* to merge it. Device music has the same switch.
 3. **Settings > Launcher > Set as default launcher**, choose Nocturne and *Always*. The Home button then returns to Nocturne; use the app list in the app to start other apps. To undo: Android Settings > Apps > Default apps > Home app.
 4. Optional, **Settings > Audiobooks**: server URL, user, password. Only a login and read requests are made. The screen shows the last-played book (cover, progress, time left) and an *Open Audiobookshelf* button for the installed app (web page without it). The app cannot be told to start playback from outside, so there is no resume button.
 

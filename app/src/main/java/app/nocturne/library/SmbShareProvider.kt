@@ -1,5 +1,6 @@
 package app.nocturne.library
 
+import app.nocturne.data.AppSettings
 import app.nocturne.data.SmbConfig
 import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.auth.AuthenticationContext
@@ -7,6 +8,7 @@ import com.hierynomus.smbj.connection.Connection
 import com.hierynomus.smbj.session.Session
 import com.hierynomus.smbj.share.DiskShare
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import com.hierynomus.smbj.SmbConfig as SmbjConfig
 
@@ -137,6 +139,32 @@ class SmbShareProvider(
             }
         }
     }
+}
+
+/**
+ * One [SmbShareProvider] per Samba share, created on first use. Scanning, tag reading and playback each get their own
+ * pool, so a big scan of one share can never starve playback (see CLAUDE.md).
+ */
+class SmbProviders(
+    private val settings: () -> AppSettings,
+    private val password: (sourceId: String) -> String,
+) {
+    private val providers = ConcurrentHashMap<String, SmbShareProvider>()
+
+    fun get(sourceId: String): SmbShareProvider = providers.getOrPut(sourceId) {
+        SmbShareProvider(
+            config = { settings().smbSource(sourceId)?.config ?: SmbConfig() },
+            password = { password(sourceId) },
+        )
+    }
+
+    /** Drops the connection (it reconnects on next use), e.g. after the share's settings or password changed. */
+    fun close(sourceId: String) { providers[sourceId]?.close() }
+
+    fun closeAll() = providers.values.forEach { it.close() }
+
+    /** Forget a deleted share entirely. */
+    fun remove(sourceId: String) { providers.remove(sourceId)?.close() }
 }
 
 data class TestResult(val success: Boolean, val message: String, val sample: List<String> = emptyList())

@@ -5,9 +5,17 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+/**
+ * Source ids stored in [Track.source]: [LOCAL] = this device, [SAMBA] = the main Samba share, anything else = an added share
+ * ("smb-xxxxxxxx"). Everything that is not [LOCAL] is a Samba share.
+ */
 object Source {
     const val LOCAL = "local"
     const val SAMBA = "samba"
+
+    fun isSmb(id: String) = id != LOCAL
+
+    fun newShareId() = "smb-" + java.util.UUID.randomUUID().toString().take(8)
 }
 
 @Entity(
@@ -15,7 +23,7 @@ object Source {
     indices = [Index("source"), Index("folderPath"), Index("metaDone")],
 )
 data class Track(
-    /** Stable across rescans: "smb:<path>" or "local:<content uri>". */
+    /** Stable across rescans: "smb:<path>" (main share), "smb:<shareId>:<path>" (added share) or "local:<content uri>". */
     @PrimaryKey val id: String,
     val title: String,
     val artist: String,
@@ -43,6 +51,8 @@ data class FolderRow(
     val sampleArtist: String,
     val source: String,
 )
+
+data class SourceCount(val source: String, val count: Int)
 
 /** Light row used to diff a rescan against the database. */
 data class TrackStamp(
