@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+Versioning is semantic (major.minor.patch): patch for small fixes, minor for new features, major only for very large changes, rewrites or database breaks. Each release adds a section here.
+
+## 1.1.0
 - Several Samba shares: add, name, rescan and remove shares in Settings > Library. Each can be merged into the main library or kept separate (e.g. "Review", "Comedy").
 - Library and Albums get source chips; with a source selected, *Shuffle <name>* plays just that source. Randomize and the default lists only use merged sources.
 - Device music can be left out of the main library as well.

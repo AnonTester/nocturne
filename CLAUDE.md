@@ -14,6 +14,10 @@ Bedside music player + Audiobookshelf "last played" widget + home-screen (launch
 ## Rules on volume
 - Never change Android's media volume (shared with the ABS app). The in-app volume is a gain only; the status strip warns if the device volume is 0.
 
+## Versioning and releases
+- Semantic versioning, `major.minor.patch`: **patch** for small fixes/bugs, **minor** for feature additions, **major** only for very large changes, rewrites or database breaks. Bump `versionName` and `versionCode` (+1 every release) in `app/build.gradle.kts`.
+- Each release: a short section in `CHANGELOG.md`, tag `vX.Y.Z`, a GitHub release with the signed `assembleRelease` APK as `nocturne-X.Y.Z-release.apk`.
+
 ## Layout (`app/src/main/java/app/nocturne`)
 - `playback/` `PlaybackEngine` (app-scoped ExoPlayer owner: queue, shuffle, sleep timer, volume, retry), `PlaybackService` (Media3 session/notification), pure logic: `ShuffleEngine`, `VolumeCurve`, `SleepTimer`.
 - `library/` `LibraryManager` (scans, rescan loop, tag reading), `SmbShareProvider` (smbj connection), `SmbDataSource` (ExoPlayer ranged reads), `SmbReadAhead` (block buffer, essential), `SmbScanner`, `LocalScanner` (MediaStore + SAF), `MetadataEnricher`, `CoverLoader`, `Reconciler`.
