@@ -63,7 +63,7 @@ interface TrackDao {
     @Query(
         """SELECT folderPath, MIN(folder) AS name, COUNT(*) AS trackCount, MIN(artist) AS sampleArtist, source
            FROM tracks
-           WHERE source IN (:sources) AND (:q = '' OR folder LIKE '%' || :q || '%' OR artist LIKE '%' || :q || '%')
+           WHERE source IN (:sources) AND (:q = '' OR folderPath LIKE '%' || :q || '%' OR artist LIKE '%' || :q || '%')
            GROUP BY folderPath, source
            ORDER BY name COLLATE NOCASE""",
     )

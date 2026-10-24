@@ -68,7 +68,21 @@ data class FolderRow(
     val trackCount: Int,
     val sampleArtist: String,
     val source: String,
-)
+) {
+    /** What to show for the folder: a disc folder such as "CD1" is prefixed with its album folder. */
+    val displayName: String get() = FolderNames.display(folderPath, name)
+}
+
+object FolderNames {
+    private val disc = Regex("""^(?:(?:cd|disc|disk|vol(?:ume)?\.?|part)[\s._-]*\d+|side[\s._-]*[a-d])(?![\p{L}\d]).*$""", RegexOption.IGNORE_CASE)
+
+    /** "Abbey Road • CD1" for a disc/part folder with a parent folder, otherwise [name] as it is. */
+    fun display(folderPath: String, name: String): String {
+        if (!disc.matches(name)) return name
+        val parent = folderPath.trim('/').split('/').dropLast(1).lastOrNull { it.isNotBlank() } ?: return name
+        return "$parent • $name"
+    }
+}
 
 data class SourceCount(val source: String, val count: Int)
 

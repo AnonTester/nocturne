@@ -29,13 +29,16 @@ Bedside music player + Audiobookshelf "last played" widget + home-screen (launch
 - `tracks.source` is a source id: `local` (device), `samba` (the main share, original ids/URIs, always merged) or `smb-xxxxxxxx` (an added share). Anything that is not `local` is Samba (`Source.isSmb`).
 - Track ids: main `smb:<path>`, added `smb:<shareId>:<path>`. Added shares' URIs carry `?src=<shareId>` (missing = main) so playback, tags and covers use the right connection (`SmbUri`, `RoutingDataSource`).
 - Settings: main share in its own keys, added shares as JSON (`smb_extra_sources`), passwords per share in `SecretStore`. `AppSettings.mergedSources` = shares with `includeInMain` + device if `deviceInMain`; `QueueScope.All`, Randomize and the default Library/Albums lists use only those. A share that is not merged is played via `QueueScope.Source`.
-- `SmbProviders` gives one `SmbShareProvider` per share, in four sets (scan, tag reading, playback, loudness).
+- `SmbProviders` gives one `SmbShareProvider` per share, in five sets (scan, tag reading, playback, loudness, prefetch).
 - Folder queries must always filter by source too (two shares can share a folder path).
 
 ## Loudness
 - `tracks.gainDb/peak/gainSource` (0 unknown, 1 tag, 2 measured, 3 failed); reference -18 LUFS (ReplayGain 2). A changed file is re-imported with source 0, so new tags always replace measured values.
 - `GainScanner` does the work: tag first (`ReplayGainReader`, Media3 MetadataRetriever), else `LoudnessMeter` (MediaExtractor + MediaCodec, two 12 s windows at 30 %/62 %, `Bs1770` = BS.1770 K-weighting + gating). It has its own fourth connection set (`smbGain`) and pauses while the player is LOADING. The engine feeds it the current track and what plays next (`ShuffleEngine.peekNext` + `next(preferred)`).
 - `GainModel` / `PlaybackEngine.applyGain()` is the only place that sets `player.volume`: user gain x levelling factor, capped at 1 (ExoPlayer cannot amplify, so levelling can never clip). A track's gain arriving mid-song ramps in over 1 s.
+
+## RAM cache
+- `TrackRamCache` holds whole Samba files (previous, current, next; max 100 MB each, 192 MB total, direct buffers, RAM only, never on disk). `TrackPrefetcher` fills it on its own connection set (`smbPrefetch`) from `PlaybackEngine.onPrefetchWanted` (current + next). The cache key (`TrackRamCache.keyFor`: id + mtime + size) is set as the MediaItem's custom cache key and arrives as `DataSpec.key`; `RoutingDataSource` serves a hit from `MemoryDataSource` without any SMB access. Only complete files are stored. `SmbDataSource.open` has a 5 s deadline, then reconnects once.
 
 ## Hard-won rules
 - Three separate SMB connections on purpose: scanning, tag reading, playback. Sharing one made playback stall during scans.

@@ -6,7 +6,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -186,25 +188,34 @@ fun ButtonFlow(content: @Composable androidx.compose.foundation.layout.FlowRowSc
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun androidx.compose.foundation.layout.FlowRowScope.flowWeight(weight: Float = 1f): Modifier = Modifier.weight(weight).widthIn(min = 150.dp)
 
-/** A choice chip: the selected one is tinted with the accent. Used for source pickers. */
+/** A choice chip: the selected one is tinted with the accent. Used for source pickers. [compact] is the low variant for list headers. */
 @Composable
-fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier = Modifier, compact: Boolean = false, onClick: () -> Unit) {
     val c = Nocturne.colors
     Box(
-        modifier.height(44.dp).clip(ControlShape)
+        modifier.height(if (compact) 36.dp else 44.dp).clip(ControlShape)
             .background(if (selected) c.accentContainer else c.surfaceHigh)
             .border(1.dp, if (selected) c.accent.copy(alpha = 0.5f) else c.border, ControlShape)
-            .clickable(onClick = onClick).padding(horizontal = 16.dp),
+            .clickable(onClick = onClick).padding(horizontal = if (compact) 12.dp else 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = if (selected) c.accent else c.textSecondary, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = if (selected) c.accent else c.textSecondary, style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
-/** Wrapping row of [ChoiceChip]s; [options] are (value, label) pairs and a null value means "no filter". */
+/**
+ * Row of [ChoiceChip]s; [options] are (value, label) pairs and a null value means "no filter". Wraps by default; with
+ * [scroll] it stays one compact line that scrolls sideways (list headers, where height is scarce).
+ */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun <T> ChipRow(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
+fun <T> ChipRow(options: List<Pair<T, String>>, selected: T, modifier: Modifier = Modifier, scroll: Boolean = false, onSelect: (T) -> Unit) {
+    if (scroll) {
+        Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { (value, label) -> ChoiceChip(label, value == selected, compact = true) { onSelect(value) } }
+        }
+        return
+    }
     androidx.compose.foundation.layout.FlowRow(
         modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),

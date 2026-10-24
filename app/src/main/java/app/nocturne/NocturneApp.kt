@@ -10,6 +10,8 @@ import app.nocturne.library.CoverLoader
 import app.nocturne.library.GainScanner
 import app.nocturne.library.LibraryManager
 import app.nocturne.library.SmbProviders
+import app.nocturne.library.TrackPrefetcher
+import app.nocturne.library.TrackRamCache
 import app.nocturne.playback.PlayStatus
 import app.nocturne.playback.PlaybackEngine
 import java.security.Security
@@ -37,6 +39,10 @@ class NocturneApp : Application() {
     /** Fourth set: loudness analysis, kept apart from scanning, tag reading and playback. */
     lateinit var smbGain: SmbProviders; private set
     lateinit var gainScanner: GainScanner; private set
+    /** Fifth set: whole-file downloads of the next track into [ramCache]. */
+    lateinit var smbPrefetch: SmbProviders; private set
+    val ramCache = TrackRamCache()
+    lateinit var prefetcher: TrackPrefetcher; private set
     lateinit var library: LibraryManager; private set
     lateinit var engine: PlaybackEngine; private set
     lateinit var covers: CoverLoader; private set
@@ -54,20 +60,30 @@ class NocturneApp : Application() {
         secrets = SecretStore(this)
         latestSettings = runBlocking { settings.flow.first() }
         ioScope.launch {
-            settings.flow.collect { latestSettings = it }
+            settings.flow.collect { latestSettings = it; ramCache.enabled = it.ramCache }
         }
         smb = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
         smbPlayback = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
         smbEnrich = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
         smbGain = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
+        smbPrefetch = SmbProviders({ latestSettings }, secrets::smbPasswordFor)
         library = LibraryManager(this, db.tracks(), settings, smb, smbEnrich, ioScope)
         covers = CoverLoader(this, smbPlayback)
         abs = AbsRepository(settings, secrets)
-        engine = PlaybackEngine(this, db.tracks(), settings, smbPlayback, appScope)
+        engine = PlaybackEngine(this, db.tracks(), settings, smbPlayback, ramCache, appScope)
         gainScanner = GainScanner(this, db.tracks(), settings, smbGain, ioScope) { engine.state.value.status == PlayStatus.LOADING }
         engine.onGainWanted = gainScanner::request
+        prefetcher = TrackPrefetcher(db.tracks(), smbPrefetch, ramCache, ioScope)
+        engine.onPrefetchWanted = prefetcher::request
         library.start()
         gainScanner.start()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // Under memory pressure keep only the track that is playing.
+        if (level >= TRIM_MEMORY_RUNNING_LOW) ramCache.clearExcept(engine.state.value.track?.let(TrackRamCache::keyFor))
     }
 
     /** smbj needs MD4/HMAC/AES-CMAC etc. that Android's trimmed-down "BC" provider no longer ships. */

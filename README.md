@@ -84,6 +84,9 @@ Nocturne's volume slider is its own gain on top of Android's media volume, which
 ## Loudness levelling
 *Settings > Audio.* With **Level track loudness** on, every track plays at the same loudness, so a mixed queue (quiet and loud masters, tagged and untagged files) no longer jumps in volume. Nocturne reads ReplayGain / R128 tags and, for files without them, measures the loudness of two stretches from the middle of the song (songs often start soft) in the background, one track at a time and only while nothing is loading. Everything is cached in the library, the tracks about to play are done first, and a tag that shows up in an updated file replaces a measured value. Tracks not known yet play at the library's median level. The **level offset** shifts all levelled music up or down (the volume slider then sets the loudness after levelling); *Match typical loudness* sets it so an average track keeps the loudness it had before. Levelling is off by default; the background scan is on. Android's media volume is never touched.
 
+## Memory cache
+*Settings > Audio > Keep tracks in memory* (on by default): the previous, current and next Samba track (up to 100 MB each; longer files such as audiobooks are streamed as before) are held in RAM. Seeking, skipping and Previous then need no network, so a NAS whose disk has spun down, or a dropped connection, cannot delay them; the next track is fetched while the current one plays. Nothing is written to the phone's storage.
+
 ## Network notes
 - Samba: SMB2/3 only (SMB1-only servers are not supported). The phone must be able to reach the server on port 445 (same Wi-Fi/LAN or VPN). Guest access works with an empty user name.
 - Cleartext HTTP is allowed so a LAN Audiobookshelf server without TLS works.

@@ -73,6 +73,8 @@ data class AppSettings(
     val levelOffsetDb: Float = 0f,
     /** Measure loudness of untagged tracks in the background. */
     val gainScan: Boolean = true,
+    /** Keep the previous, current and next Samba track in memory (seeks and track changes then need no network). */
+    val ramCache: Boolean = true,
     val mode: AppMode = AppMode.MUSIC,
     val lastTrackId: String = "",
     val smbLastScan: Long = 0,
@@ -113,6 +115,7 @@ class SettingsRepository(private val context: Context) {
         val levelTracks = booleanPreferencesKey("level_tracks")
         val levelOffset = floatPreferencesKey("level_offset_db")
         val gainScan = booleanPreferencesKey("gain_scan")
+        val ramCache = booleanPreferencesKey("ram_cache")
         val mode = stringPreferencesKey("mode")
         val lastTrack = stringPreferencesKey("last_track")
         val smbLastScan = longPreferencesKey("smb_last_scan")
@@ -145,6 +148,7 @@ class SettingsRepository(private val context: Context) {
             levelTracks = p[K.levelTracks] ?: d.levelTracks,
             levelOffsetDb = p[K.levelOffset] ?: d.levelOffsetDb,
             gainScan = p[K.gainScan] ?: d.gainScan,
+            ramCache = p[K.ramCache] ?: d.ramCache,
             mode = p[K.mode]?.let { runCatching { AppMode.valueOf(it) }.getOrNull() } ?: d.mode,
             lastTrackId = p[K.lastTrack] ?: "",
             smbLastScan = p[K.smbLastScan] ?: 0L,
@@ -183,6 +187,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setLevelTracks(v: Boolean) = edit { it[K.levelTracks] = v }
     suspend fun setLevelOffsetDb(v: Float) = edit { it[K.levelOffset] = v.coerceIn(GainModel.MIN_OFFSET_DB, GainModel.MAX_OFFSET_DB) }
     suspend fun setGainScan(v: Boolean) = edit { it[K.gainScan] = v }
+    suspend fun setRamCache(v: Boolean) = edit { it[K.ramCache] = v }
     suspend fun setMode(v: AppMode) = edit { it[K.mode] = v.name }
     suspend fun setLastTrack(id: String) = edit { it[K.lastTrack] = id }
     suspend fun setSmbLastScan(at: Long) = edit { it[K.smbLastScan] = at }

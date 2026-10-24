@@ -17,6 +17,7 @@ import app.nocturne.data.RepeatMode
 import app.nocturne.data.SettingsRepository
 import app.nocturne.data.Track
 import app.nocturne.data.TrackDao
+import app.nocturne.library.TrackRamCache
 import app.nocturne.library.RoutingDataSource
 import app.nocturne.library.SmbProviders
 import kotlinx.coroutines.CoroutineScope
@@ -51,12 +52,13 @@ class PlaybackEngine(
     private val dao: TrackDao,
     private val settings: SettingsRepository,
     smb: SmbProviders,
+    ram: TrackRamCache,
     private val scope: CoroutineScope,
 ) {
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(
             DefaultMediaSourceFactory(
-                RoutingDataSource.Factory(context, smb),
+                RoutingDataSource.Factory(context, smb, ram),
                 DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
             ),
         )
@@ -77,6 +79,8 @@ class PlaybackEngine(
     // Loudness levelling (see GainModel). The scanner fills in each track's gain in the background.
     /** Set by the app: asks the background scanner to do these tracks first. */
     var onGainWanted: (List<String>) -> Unit = {}
+    /** Set by the app: the playing track and the next one, to be held in memory. */
+    var onPrefetchWanted: (List<String>) -> Unit = {}
     private var levelOn = false
     private var levelOffsetDb = 0f
     private var fallbackDb = GainModel.DEFAULT_FALLBACK_DB
@@ -368,6 +372,7 @@ class PlaybackEngine(
         val item = MediaItem.Builder()
             .setMediaId(track.id)
             .setUri(track.uri)
+            .setCustomCacheKey(TrackRamCache.keyFor(track))
             .setMediaMetadata(
                 MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).setAlbumTitle(track.album).build(),
             )
@@ -395,6 +400,7 @@ class PlaybackEngine(
             }
         }
         onGainWanted(ids)
+        onPrefetchWanted(ids.take(2))
     }
 
     private fun syncStatus() {

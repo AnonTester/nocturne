@@ -18,12 +18,19 @@ import com.hierynomus.mssmb2.SMB2ShareAccess
 import com.hierynomus.smbj.share.File as SmbFile
 import java.io.IOException
 import java.util.EnumSet
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * Random-access SMB reader for ExoPlayer: seeks translate to ranged reads, so playback starts
  * instantly and nothing is downloaded whole.
  */
 private const val TAG = "NocturneSMB"
+private const val OPEN_DEADLINE_S = 5L
+private val opener = Executors.newCachedThreadPool { r -> Thread(r, "smb-open").apply { isDaemon = true } }
 
 @UnstableApi
 class SmbDataSource(private val provider: SmbShareProvider) : BaseDataSource(/* isNetwork = */ true) {
@@ -52,7 +59,8 @@ class SmbDataSource(private val provider: SmbShareProvider) : BaseDataSource(/* 
             }
             position = dataSpec.position
             bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) dataSpec.length else size - position
-            Log.d(TAG, "open pos=${dataSpec.position} size=$size took=${(System.nanoTime() - openedAt) / 1_000_000}ms")
+            val took = (System.nanoTime() - openedAt) / 1_000_000
+            Log.println(if (took > 1000) Log.WARN else Log.DEBUG, TAG, "open pos=${dataSpec.position} size=$size took=${took}ms")
         } catch (e: DataSourceException) {
             throw e
         } catch (e: Exception) {
@@ -65,18 +73,32 @@ class SmbDataSource(private val provider: SmbShareProvider) : BaseDataSource(/* 
     }
 
     private fun openWithRetry(path: String): SmbFile {
-        fun attempt() = provider.share().openFile(
-            path,
-            EnumSet.of(AccessMask.GENERIC_READ),
-            null,
-            EnumSet.of(SMB2ShareAccess.FILE_SHARE_READ, SMB2ShareAccess.FILE_SHARE_WRITE),
-            SMB2CreateDisposition.FILE_OPEN,
-            null,
-        )
+        // A connection the NAS or Wi-Fi dropped silently makes the open wait for smbj's long timeout; give up sooner.
+        fun attempt(): SmbFile {
+            val pending = opener.submit(Callable {
+                provider.share().openFile(
+                    path,
+                    EnumSet.of(AccessMask.GENERIC_READ),
+                    null,
+                    EnumSet.of(SMB2ShareAccess.FILE_SHARE_READ, SMB2ShareAccess.FILE_SHARE_WRITE),
+                    SMB2CreateDisposition.FILE_OPEN,
+                    null,
+                )
+            })
+            try {
+                return pending.get(OPEN_DEADLINE_S, TimeUnit.SECONDS)
+            } catch (e: TimeoutException) {
+                pending.cancel(true)
+                throw IOException("SMB open timed out after ${OPEN_DEADLINE_S}s")
+            } catch (e: ExecutionException) {
+                throw (e.cause as? Exception) ?: e
+            }
+        }
         return try {
             attempt()
         } catch (e: Exception) {
             // The cached connection may have gone stale (sleep, Wi-Fi roam): reconnect once.
+            Log.w(TAG, "open failed (${e.message}), reconnecting")
             provider.close()
             attempt()
         }
@@ -122,7 +144,7 @@ class SmbDataSource(private val provider: SmbShareProvider) : BaseDataSource(/* 
 
 /** Sends smb:// to an [SmbDataSource] on the track's own share (`?src=`) and everything else (content://, file://) to the default sources. */
 @UnstableApi
-class RoutingDataSource(context: Context, private val providers: SmbProviders) : DataSource {
+class RoutingDataSource(context: Context, private val providers: SmbProviders, private val ram: TrackRamCache? = null) : DataSource {
     private val other = DefaultDataSource.Factory(context).createDataSource()
     private val listeners = mutableListOf<TransferListener>()
     private var active: DataSource? = null
@@ -133,9 +155,15 @@ class RoutingDataSource(context: Context, private val providers: SmbProviders) :
     }
 
     override fun open(dataSpec: DataSpec): Long {
-        val target = if (dataSpec.uri.scheme == "smb") {
-            SmbDataSource(providers.get(SmbUri.sourceOf(dataSpec.uri))).also { s -> listeners.forEach(s::addTransferListener) }
-        } else other
+        val cached = dataSpec.key?.let { ram?.get(it) }
+        val target: DataSource = when {
+            dataSpec.uri.scheme != "smb" -> other
+            cached != null -> {
+                Log.d(TAG, "memory pos=${dataSpec.position}")
+                MemoryDataSource(cached).also { s -> listeners.forEach(s::addTransferListener) }
+            }
+            else -> SmbDataSource(providers.get(SmbUri.sourceOf(dataSpec.uri))).also { s -> listeners.forEach(s::addTransferListener) }
+        }
         active = target
         return target.open(dataSpec)
     }
@@ -151,7 +179,7 @@ class RoutingDataSource(context: Context, private val providers: SmbProviders) :
         try { active?.close() } finally { active = null }
     }
 
-    class Factory(private val context: Context, private val providers: SmbProviders) : DataSource.Factory {
-        override fun createDataSource(): DataSource = RoutingDataSource(context, providers)
+    class Factory(private val context: Context, private val providers: SmbProviders, private val ram: TrackRamCache? = null) : DataSource.Factory {
+        override fun createDataSource(): DataSource = RoutingDataSource(context, providers, ram)
     }
 }

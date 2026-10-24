@@ -509,6 +509,13 @@ private fun AudioTab(vm: MainViewModel, settings: AppSettings) {
         }, Modifier.fillMaxWidth(), icon = Icons.Rounded.GraphicEq)
         matchNote?.let { Text(it, color = c.textSecondary, style = MaterialTheme.typography.bodySmall) }
         Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
+        SectionLabel("Network")
+        ToggleRow(
+            "Keep tracks in memory",
+            "Holds the previous, current and next Samba track (up to 100 MB each) in memory, so seeking and track changes need no network.",
+            settings.ramCache,
+        ) { vm.setRamCache(it) }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
         SectionLabel("Loudness scan")
         ToggleRow(
             "Measure loudness in background",

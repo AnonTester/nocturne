@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,6 +79,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val folders: Flow<List<FolderRow>> =
         combine(folderQuery.debounce(150), folderSource, mergedSources) { q, src, merged -> Triple(q, src, merged) }
             .flatMapLatest { (q, src, merged) -> dao.folders(q.trim(), src?.let(::listOf) ?: merged) }
+            // CD1..CD5 of one album sort together under the album's name, not under "C".
+            .map { rows -> rows.sortedBy { it.displayName.lowercase() } }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
 
     suspend fun tracksIn(folderPath: String, source: String): List<Track> = dao.tracksInFolder(folderPath, source)
 
@@ -100,7 +104,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleMute() = app.engine.toggleMute()
     fun playTrack(t: Track, scope: QueueScope? = null) = app.engine.playTrack(t, scope)
     fun playFolder(f: FolderRow, source: String, shuffle: Boolean) =
-        app.engine.playFolder(f.folderPath, source, f.name, shuffle)
+        app.engine.playFolder(f.folderPath, source, f.displayName, shuffle)
     fun randomizeAll() = app.engine.randomizeAll()
     fun playSource(id: String, shuffle: Boolean) = app.engine.playSource(id, settings.value.sourceName(id), shuffle)
     fun startSleepTimer(minutes: Int, finishCurrent: Boolean) = app.engine.startSleepTimer(minutes, finishCurrent)
@@ -161,6 +165,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             app.smb.close(src.id)
             app.smbPlayback.close(src.id)
             app.smbEnrich.close(src.id)
+            app.smbPrefetch.close(src.id)
+            app.smbGain.close(src.id)
             app.library.scanSmb(src.id)
         }
     }
@@ -175,6 +181,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             app.library.removeSource(sourceId)
             app.secrets.removeSmbPassword(sourceId)
             app.smbPlayback.remove(sourceId)
+            app.smbPrefetch.remove(sourceId)
         }
     }
 
@@ -230,6 +237,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setGainScan(v: Boolean) = viewModelScope.launch { app.settings.setGainScan(v) }
+    fun setRamCache(v: Boolean) = viewModelScope.launch { app.settings.setRamCache(v) }
 
     /** Forgets measured and failed loudness values so the background scan does them again. */
     fun remeasureAll() = viewModelScope.launch(Dispatchers.IO) { dao.resetMeasuredGain() }
