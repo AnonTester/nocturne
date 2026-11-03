@@ -87,6 +87,14 @@ Nocturne's volume slider is its own gain on top of Android's media volume, which
 ## Memory cache
 *Settings > Audio > Keep tracks in memory* (on by default): the previous, current and next Samba track (up to 100 MB each; longer files such as audiobooks are streamed as before) are held in RAM. Seeking, skipping and Previous then need no network, so a NAS whose disk has spun down, or a dropped connection, cannot delay them; the next track is fetched while the current one plays. Nothing is written to the phone's storage.
 
+## Audiobookshelf stops at night (Android backup)
+Android's scheduled Google backup (it runs while the phone is charging and idle, typically once a night) backs up apps one by one and stops each app's process afterwards, **including an app that is playing in the foreground**. Audiobookshelf allows backup, so it gets closed in the middle of playback. Nocturne itself opts out of backup and is not affected. The phone's log shows it as "Initiating full-data transport backup of <package>" followed a few seconds later by the app's process dying. Android has no per-app exclusion, so the fix is to switch backup off for the whole device: *Settings > System > Backup > Back up to Google Drive*, or over adb:
+```
+adb shell bmgr enable false    # disable (settings, app data and Wi-Fi passwords are then no longer backed up to Google)
+adb shell bmgr enabled         # check
+adb shell bmgr enable true     # enable again
+```
+
 ## Network notes
 - Samba: SMB2/3 only (SMB1-only servers are not supported). The phone must be able to reach the server on port 445 (same Wi-Fi/LAN or VPN). Guest access works with an empty user name.
 - Cleartext HTTP is allowed so a LAN Audiobookshelf server without TLS works.
